@@ -26,30 +26,73 @@ defineProps({
 
 <style scoped>
 .card {
-  background: #fff; border-radius: 10px;
-  box-shadow: 0 1px 6px rgba(0,0,0,.07);
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   overflow: hidden;
+  transition: transform 0.25s, box-shadow 0.25s;
 }
+
+.card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
 .card-header {
-  display: flex; align-items: center; gap: .6rem;
-  padding: .9rem 1.1rem;
-  border-left: 4px solid #4f46e5;
-  background: #fafafa;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.1rem 1.25rem;
+  border-left: 4px solid v-bind(color);
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.02) 0%, transparent 100%);
 }
-.card-icon { font-size: 1.2rem; }
-.card-title { flex: 1; margin: 0; font-size: 1rem; font-weight: 700; color: #1e1b4b; }
+
+.card-icon {
+  font-size: 1.35rem;
+}
+
+.card-title {
+  flex: 1;
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #1e1b4b;
+}
+
 .badge {
-  background: #e0e7ff; color: #4f46e5;
-  font-size: .75rem; font-weight: 700;
-  padding: .15rem .55rem; border-radius: 999px;
+  background: v-bind(color);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
 }
-.card-body { padding: .75rem 1.1rem 1rem; }
-ul { margin: 0; padding-left: 1.2rem; }
+
+.card-body {
+  padding: 0.5rem 1.25rem 1.25rem;
+}
+
+ul {
+  margin: 0;
+  padding-left: 1.3rem;
+}
+
 li {
-  color: #374151; font-size: .9rem; line-height: 1.6;
-  padding: .15rem 0;
+  color: #374151;
+  font-size: 0.925rem;
+  line-height: 1.65;
+  padding: 0.4rem 0;
   border-bottom: 1px solid #f3f4f6;
 }
-li:last-child { border-bottom: none; }
-.empty { padding: 1rem 1.1rem; color: #9ca3af; font-size: .9rem; }
+
+li:last-child {
+  border-bottom: none;
+}
+
+.empty {
+  padding: 1.25rem 1.25rem;
+  color: #9ca3af;
+  font-size: 0.9rem;
+  font-style: italic;
+}
 </style>
