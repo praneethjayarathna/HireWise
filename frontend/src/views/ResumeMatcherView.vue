@@ -214,6 +214,43 @@
           </div>
         </div>
       </section>
+
+      <!-- Education Analysis -->
+      <section v-if="educationAnalysis" class="education-section">
+        <h2 class="education-title">Education Qualification</h2>
+
+        <div class="education-cards">
+          <div class="education-card">
+            <h3 class="education-card-title">
+              <span class="education-icon">🎓</span>
+              Job Requirement
+            </h3>
+            <div v-if="educationAnalysis.job_highest" class="education-info">
+              <span class="education-level">{{ educationAnalysis.job_highest.type }}</span>
+              <span class="education-status" :class="educationAnalysis.meets_requirement ? 'meets' : 'below'">
+                {{ educationAnalysis.meets_requirement ? 'Meets Requirement' : 'Below Requirement' }}
+              </span>
+            </div>
+            <p v-else class="education-empty">No specific education requirement</p>
+          </div>
+
+          <div class="education-card">
+            <h3 class="education-card-title">
+              <span class="education-icon">📜</span>
+              Resume Qualification
+            </h3>
+            <div v-if="educationAnalysis.resume_highest" class="education-info">
+              <span class="education-level">{{ educationAnalysis.resume_highest.type }}</span>
+            </div>
+            <p v-else class="education-empty">No education found in resume</p>
+          </div>
+        </div>
+
+        <div class="education-message" :class="educationAnalysis.meets_requirement ? 'success' : 'warning'">
+          <span class="message-icon">{{ educationAnalysis.meets_requirement ? '✓' : '!' }}</span>
+          <span>{{ educationAnalysis.meets_requirement_message }}</span>
+        </div>
+      </section>
     </main>
   </div>
 </template>
@@ -234,6 +271,7 @@ const resumeFile = ref(null)
 const jdText = ref('')
 const jobDescriptionResult = ref(null)
 const skillAnalysis = ref(null)
+const educationAnalysis = ref(null)
 const similarityScores = ref(null)
 const loading = ref(false)
 const jdLoading = ref(false)
@@ -370,10 +408,12 @@ async function analyze() {
   error.value = ''
   similarityScores.value = null
   skillAnalysis.value = null
+  educationAnalysis.value = null
   try {
     const { data } = await analyzeResume(resumeFile.value, jobDescriptionResult.value)
     similarityScores.value = data.similarity_scores
     skillAnalysis.value = data.skill_analysis
+    educationAnalysis.value = data.education_analysis
   } catch (e) {
     error.value = e.response?.data?.detail || 'Analysis failed. Please try again.'
   } finally {
@@ -980,5 +1020,129 @@ h1 {
 .variation-resume {
   font-weight: 500;
   color: #059669;
+}
+
+.education-section {
+  margin-top: 2.5rem;
+}
+
+.education-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1e1b4b;
+  margin: 0 0 1rem;
+}
+
+.education-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+@media (max-width: 640px) {
+  .education-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+.education-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.education-card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 1rem;
+  color: #1f2937;
+}
+
+.education-icon {
+  font-size: 1.25rem;
+}
+
+.education-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.education-level {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1e1b4b;
+}
+
+.education-status {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  width: fit-content;
+}
+
+.education-status.meets {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.education-status.below {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.education-empty {
+  color: #9ca3af;
+  font-size: 0.9rem;
+  margin: 0;
+  font-style: italic;
+}
+
+.education-message {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.education-message.success {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.education-message.warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.message-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.education-message.success .message-icon {
+  background: #10b981;
+  color: #fff;
+}
+
+.education-message.warning .message-icon {
+  background: #f59e0b;
+  color: #fff;
 }
 </style>

@@ -61,3 +61,19 @@ class SkillAnalysisSerializer(serializers.Serializer):
     job_skills_count = serializers.IntegerField()
     resume_skills_count = serializers.IntegerField()
     match_rate = serializers.FloatField()
+
+
+class EducationItemSerializer(serializers.Serializer):
+    type = serializers.CharField()
+    level = serializers.IntegerField()
+    context = serializers.CharField(required=False)
+    confidence = serializers.FloatField(required=False)
+
+
+class EducationAnalysisSerializer(serializers.Serializer):
+    job_education = serializers.ListField(child=EducationItemSerializer())
+    resume_education = serializers.ListField(child=EducationItemSerializer())
+    job_highest = EducationItemSerializer(allow_null=True)
+    resume_highest = EducationItemSerializer(allow_null=True)
+    meets_requirement = serializers.BooleanField()
+    meets_requirement_message = serializers.CharField()
