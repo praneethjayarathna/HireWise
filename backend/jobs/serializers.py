@@ -52,3 +52,12 @@ class CategorizedResumeSerializer(serializers.Serializer):
     responsibilities = serializers.ListField(child=serializers.CharField())
     qualifications = serializers.ListField(child=serializers.CharField())
     skills = serializers.ListField(child=serializers.CharField())
+
+
+class SkillAnalysisSerializer(serializers.Serializer):
+    matching_skills = serializers.ListField(child=serializers.CharField())
+    missing_skills = serializers.ListField(child=serializers.CharField())
+    skill_variations = serializers.DictField(child=serializers.CharField(), required=False)
+    job_skills_count = serializers.IntegerField()
+    resume_skills_count = serializers.IntegerField()
+    match_rate = serializers.FloatField()

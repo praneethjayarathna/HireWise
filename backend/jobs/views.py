@@ -6,12 +6,14 @@ from rest_framework.views import APIView
 
 from .parsers import extract_text
 from .categorizer import categorize, compute_similarity
+from .skills_extractor import extract_all_skills, compare_skills
 from .serializers import (
     JobDescriptionUploadSerializer,
     CategorizedJobDescriptionSerializer,
     ResumeAnalyzeRequestSerializer,
     SimilarityScoreSerializer,
     CategorizedResumeSerializer,
+    SkillAnalysisSerializer,
 )
 
 
@@ -51,10 +53,14 @@ class JobDescriptionAnalyzeView(APIView):
             )
 
         categorized = categorize(raw_text)
+        skills_data = extract_all_skills(raw_text)
 
         out_serializer = CategorizedJobDescriptionSerializer(data=categorized)
         out_serializer.is_valid(raise_exception=True)
-        return Response(out_serializer.validated_data, status=status.HTTP_200_OK)
+
+        result = out_serializer.validated_data
+        result["skills_data"] = sorted(skills_data)
+        return Response(result, status=status.HTTP_200_OK)
 
 
 class ResumeAnalyzeView(APIView):
@@ -102,16 +108,25 @@ class ResumeAnalyzeView(APIView):
         categorized_resume = categorize(resume_text)
         scores = compute_similarity(job_description, categorized_resume)
 
+        job_text = "\n".join(
+            sentence for sentences in job_description.values() for sentence in sentences
+        )
+        skill_analysis = compare_skills(job_text, resume_text)
+
         resume_serializer = CategorizedResumeSerializer(data=categorized_resume)
         resume_serializer.is_valid(raise_exception=True)
 
         score_serializer = SimilarityScoreSerializer(data=scores)
         score_serializer.is_valid(raise_exception=True)
 
+        skill_serializer = SkillAnalysisSerializer(data=skill_analysis)
+        skill_serializer.is_valid(raise_exception=True)
+
         return Response(
             {
                 "categorized_resume": resume_serializer.validated_data,
                 "similarity_scores": score_serializer.validated_data,
+                "skill_analysis": skill_serializer.validated_data,
             },
             status=status.HTTP_200_OK,
         )

@@ -139,6 +139,81 @@
           </div>
         </div>
       </section>
+
+      <!-- Skill Analysis -->
+      <section v-if="skillAnalysis" class="skills-section">
+        <h2 class="skills-title">Skills Analysis</h2>
+
+        <div class="skills-stats">
+          <div class="stat-badge">
+            <span class="stat-value">{{ skillAnalysis.job_skills_count }}</span>
+            <span class="stat-label">Job Required</span>
+          </div>
+          <div class="stat-badge">
+            <span class="stat-value">{{ skillAnalysis.resume_skills_count }}</span>
+            <span class="stat-label">Resume Skills</span>
+          </div>
+          <div class="stat-badge highlight">
+            <span class="stat-value">{{ skillAnalysis.match_rate }}%</span>
+            <span class="stat-label">Match Rate</span>
+          </div>
+        </div>
+
+        <div class="skills-container">
+          <div class="skills-card matching">
+            <h3 class="skills-card-title">
+              <span class="skills-icon">✓</span>
+              Matching Skills
+            </h3>
+            <div v-if="skillAnalysis.matching_skills?.length" class="skills-list">
+              <span
+                v-for="skill in skillAnalysis.matching_skills"
+                :key="skill"
+                class="skill-tag matching"
+              >
+                {{ skill }}
+              </span>
+            </div>
+            <p v-else class="skills-empty">No matching skills found</p>
+          </div>
+
+          <div class="skills-card missing">
+            <h3 class="skills-card-title">
+              <span class="skills-icon">✗</span>
+              Missing Skills
+            </h3>
+            <div v-if="skillAnalysis.missing_skills?.length" class="skills-list">
+              <span
+                v-for="skill in skillAnalysis.missing_skills"
+                :key="skill"
+                class="skill-tag missing"
+              >
+                {{ skill }}
+              </span>
+            </div>
+            <p v-else class="skills-empty">All required skills found!</p>
+          </div>
+        </div>
+
+        <div v-if="skillAnalysis.skill_variations && Object.keys(skillAnalysis.skill_variations).length" class="variations-card">
+          <h3 class="variations-title">
+            <span class="variations-icon">≈</span>
+            Semantic Matches
+          </h3>
+          <p class="variations-hint">Similar skills detected between job and resume</p>
+          <div class="variations-list">
+            <div
+              v-for="(value, key) in skillAnalysis.skill_variations"
+              :key="key"
+              class="variation-item"
+            >
+              <span class="variation-job">{{ key }}</span>
+              <span class="variation-arrow">→</span>
+              <span class="variation-resume">{{ value }}</span>
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
 </template>
@@ -158,6 +233,7 @@ const jdFile = ref(null)
 const resumeFile = ref(null)
 const jdText = ref('')
 const jobDescriptionResult = ref(null)
+const skillAnalysis = ref(null)
 const similarityScores = ref(null)
 const loading = ref(false)
 const jdLoading = ref(false)
@@ -263,6 +339,7 @@ function onResumeDrop(e) {
 function clearJd() {
   jdFile.value = null
   jobDescriptionResult.value = null
+  skillAnalysis.value = null
   error.value = ''
   if (jdFileInput.value) jdFileInput.value.value = ''
 }
@@ -292,9 +369,11 @@ async function analyze() {
   loading.value = true
   error.value = ''
   similarityScores.value = null
+  skillAnalysis.value = null
   try {
     const { data } = await analyzeResume(resumeFile.value, jobDescriptionResult.value)
     similarityScores.value = data.similarity_scores
+    skillAnalysis.value = data.skill_analysis
   } catch (e) {
     error.value = e.response?.data?.detail || 'Analysis failed. Please try again.'
   } finally {
@@ -691,5 +770,215 @@ h1 {
   height: 100%;
   border-radius: 4px;
   transition: width 0.5s ease-out;
+}
+
+.skills-section {
+  margin-top: 2.5rem;
+}
+
+.skills-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1e1b4b;
+  margin: 0 0 1rem;
+}
+
+.skills-stats {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.stat-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.75rem 1.25rem;
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  border: 1px solid #e5e7eb;
+}
+
+.stat-badge.highlight {
+  background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+  border: none;
+}
+
+.stat-badge.highlight .stat-value,
+.stat-badge.highlight .stat-label {
+  color: #fff;
+}
+
+.stat-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1e1b4b;
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.skills-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+}
+
+@media (max-width: 640px) {
+  .skills-container {
+    grid-template-columns: 1fr;
+  }
+  .skills-stats {
+    flex-wrap: wrap;
+  }
+}
+
+.skills-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.skills-card.matching {
+  border-left: 4px solid #10b981;
+}
+
+.skills-card.missing {
+  border-left: 4px solid #ef4444;
+}
+
+.skills-card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 1rem;
+  color: #1f2937;
+}
+
+.skills-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.skills-card.matching .skills-icon {
+  background: #d1fae5;
+  color: #10b981;
+}
+
+.skills-card.missing .skills-icon {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+.skills-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.skill-tag {
+  display: inline-block;
+  padding: 0.35rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.skill-tag.matching {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.skill-tag.missing {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.skills-empty {
+  color: #9ca3af;
+  font-size: 0.9rem;
+  margin: 0;
+  font-style: italic;
+}
+
+.variations-card {
+  margin-top: 1.5rem;
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  border-left: 4px solid #8b5cf6;
+}
+
+.variations-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.25rem;
+  color: #1f2937;
+}
+
+.variations-hint {
+  color: #9ca3af;
+  font-size: 0.85rem;
+  margin: 0 0 1rem;
+}
+
+.variations-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 0.85rem;
+  font-weight: 700;
+  background: #ede9fe;
+  color: #7c3aed;
+}
+
+.variations-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.variation-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: #f9fafb;
+  border-radius: 8px;
+}
+
+.variation-job {
+  font-weight: 500;
+  color: #1f2937;
+}
+
+.variation-arrow {
+  color: #9ca3af;
+  font-weight: 600;
+}
+
+.variation-resume {
+  font-weight: 500;
+  color: #059669;
 }
 </style>
