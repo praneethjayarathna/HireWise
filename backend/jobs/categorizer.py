@@ -222,3 +222,56 @@ def categorize(text: str) -> Dict[str, List[str]]:
                 result[CATEGORIES[cat_idx]].append(sentence)
 
     return result
+
+
+def compute_similarity(
+    job_description: Dict[str, List[str]],
+    resume: Dict[str, List[str]],
+) -> Dict[str, float]:
+    """
+    Compute similarity scores between categorized job description and resume.
+
+    For each category:
+    - Encode all sentences from both job description and resume
+    - Compute pairwise cosine similarity
+    - Use maximum similarity per resume sentence, then average
+
+    Returns dict with per-category scores and 'overall' (weighted average).
+    """
+    model = _get_model()
+    category_weights = {
+        "overview": 0.10,
+        "responsibilities": 0.30,
+        "qualifications": 0.25,
+        "skills": 0.35,
+    }
+
+    scores: Dict[str, float] = {}
+
+    for cat in CATEGORIES:
+        job_sentences = job_description.get(cat, [])
+        resume_sentences = resume.get(cat, [])
+
+        if not job_sentences or not resume_sentences:
+            scores[cat] = 0.0
+            continue
+
+        job_embeddings = model.encode(job_sentences, convert_to_numpy=True, show_progress_bar=False)
+        resume_embeddings = model.encode(resume_sentences, convert_to_numpy=True, show_progress_bar=False)
+
+        sim_matrix = np.stack(
+            [_cosine_similarity(resume_embeddings, job_embeddings[i]) for i in range(len(job_sentences))],
+            axis=1,
+        )
+
+        if sim_matrix.size == 0:
+            scores[cat] = 0.0
+            continue
+
+        max_sims = sim_matrix.max(axis=1)
+        scores[cat] = float(np.mean(max_sims))
+
+    overall = sum(scores[cat] * category_weights[cat] for cat in CATEGORIES)
+    scores["overall"] = overall
+
+    return scores

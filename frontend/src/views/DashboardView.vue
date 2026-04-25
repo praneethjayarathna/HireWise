@@ -1,7 +1,7 @@
 <template>
   <div class="dashboard">
     <nav class="navbar">
-      <span class="brand">MyApp</span>
+      <span class="brand">HireWise</span>
       <div class="user-info">
         <span v-if="auth.user">Hello, {{ auth.user.username }}</span>
         <button @click="handleLogout">Logout</button>
@@ -18,6 +18,15 @@
           <div>
             <h3>Job Description Analyzer</h3>
             <p>Upload a PDF or DOCX and extract overview, responsibilities, qualifications and skills.</p>
+          </div>
+          <span class="arrow">→</span>
+        </RouterLink>
+
+        <RouterLink to="/resume/matcher" class="feature-card">
+          <span class="feature-icon">📊</span>
+          <div>
+            <h3>Resume Matcher</h3>
+            <p>Upload your resume and compare it against a job description to see how well you fit.</p>
           </div>
           <span class="arrow">→</span>
         </RouterLink>

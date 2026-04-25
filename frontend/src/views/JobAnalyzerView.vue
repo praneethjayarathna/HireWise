@@ -2,9 +2,11 @@
   <div class="page">
     <!-- Header -->
     <nav class="navbar">
-      <span class="brand">MyApp</span>
+      <span class="brand">HireWise</span>
       <div class="nav-links">
         <RouterLink to="/dashboard">Dashboard</RouterLink>
+        <RouterLink to="/jobs/analyze">Job Analyzer</RouterLink>
+        <RouterLink to="/resume/matcher">Resume Matcher</RouterLink>
         <button class="btn-logout" @click="handleLogout">Logout</button>
       </div>
     </nav>

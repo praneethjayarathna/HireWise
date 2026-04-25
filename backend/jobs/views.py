@@ -5,8 +5,14 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .parsers import extract_text
-from .categorizer import categorize
-from .serializers import JobDescriptionUploadSerializer, CategorizedJobDescriptionSerializer
+from .categorizer import categorize, compute_similarity
+from .serializers import (
+    JobDescriptionUploadSerializer,
+    CategorizedJobDescriptionSerializer,
+    ResumeAnalyzeRequestSerializer,
+    SimilarityScoreSerializer,
+    CategorizedResumeSerializer,
+)
 
 
 class JobDescriptionAnalyzeView(APIView):
@@ -49,3 +55,63 @@ class JobDescriptionAnalyzeView(APIView):
         out_serializer = CategorizedJobDescriptionSerializer(data=categorized)
         out_serializer.is_valid(raise_exception=True)
         return Response(out_serializer.validated_data, status=status.HTTP_200_OK)
+
+
+class ResumeAnalyzeView(APIView):
+    """
+    POST /api/jobs/resume/analyze/
+    Upload a PDF or DOCX resume along with a job description, receive:
+      - categorized resume sentences
+      - similarity scores per category
+      - overall weighted similarity score
+    """
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        upload_serializer = ResumeAnalyzeRequestSerializer(data=request.data)
+        if not upload_serializer.is_valid():
+            return Response(upload_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        resume_file = upload_serializer.validated_data["resume_file"]
+        job_description = upload_serializer.validated_data["job_description"]
+
+        valid_categories = {"overview", "responsibilities", "qualifications", "skills"}
+        if not all(cat in job_description for cat in valid_categories):
+            return Response(
+                {"detail": "job_description must contain all four categories."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            resume_text = extract_text(resume_file, resume_file.name)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            return Response(
+                {"detail": "Failed to parse the uploaded file."},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        if not resume_text.strip():
+            return Response(
+                {"detail": "The uploaded resume appears to be empty or unreadable."},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        categorized_resume = categorize(resume_text)
+        scores = compute_similarity(job_description, categorized_resume)
+
+        resume_serializer = CategorizedResumeSerializer(data=categorized_resume)
+        resume_serializer.is_valid(raise_exception=True)
+
+        score_serializer = SimilarityScoreSerializer(data=scores)
+        score_serializer.is_valid(raise_exception=True)
+
+        return Response(
+            {
+                "categorized_resume": resume_serializer.validated_data,
+                "similarity_scores": score_serializer.validated_data,
+            },
+            status=status.HTTP_200_OK,
+        )

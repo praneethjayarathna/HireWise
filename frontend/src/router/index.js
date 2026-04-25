@@ -7,6 +7,7 @@ const routes = [
   { path: '/register', component: () => import('@/views/RegisterView.vue'), meta: { guest: true } },
   { path: '/dashboard', component: () => import('@/views/DashboardView.vue'), meta: { requiresAuth: true } },
   { path: '/jobs/analyze', component: () => import('@/views/JobAnalyzerView.vue'), meta: { requiresAuth: true } },
+  { path: '/resume/matcher', component: () => import('@/views/ResumeMatcherView.vue'), meta: { requiresAuth: true } },
 ]
 
 const router = createRouter({
