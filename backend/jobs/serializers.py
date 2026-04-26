@@ -98,3 +98,18 @@ class ExperienceAnalysisSerializer(serializers.Serializer):
     resume_experience = ExperienceSerializer()
     meets_requirement = serializers.BooleanField()
     meets_message = serializers.CharField()
+
+
+class DutyMatchSerializer(serializers.Serializer):
+    job_duty = serializers.CharField()
+    experience_duty = serializers.CharField()
+    similarity = serializers.FloatField()
+
+
+class ResponsibilityAnalysisSerializer(serializers.Serializer):
+    job_responsibilities = serializers.ListField(child=serializers.CharField())
+    resume_experience_duties = serializers.ListField(child=serializers.DictField())
+    matched_duties = serializers.ListField(child=DutyMatchSerializer())
+    unmatched_responsibilities = serializers.ListField(child=serializers.CharField())
+    score = serializers.FloatField()
+    explanation = serializers.CharField()

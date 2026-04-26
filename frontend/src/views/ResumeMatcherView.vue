@@ -340,6 +340,41 @@
           <span>{{ experienceAnalysis.meets_message }}</span>
         </div>
       </section>
+
+      <!-- Responsibility & Duties Analysis -->
+      <section v-if="responsibilityAnalysis" class="responsibility-section">
+        <h2 class="resp-title">Responsibilities vs Experience Analysis</h2>
+
+        <div class="resp-score-card" :class="getRespScoreClass(responsibilityAnalysis.score)">
+          <div class="resp-score-value">{{ responsibilityAnalysis.score }}%</div>
+          <div class="resp-score-label">Duties Match</div>
+        </div>
+
+        <p class="resp-explanation">{{ responsibilityAnalysis.explanation }}</p>
+
+        <div v-if="responsibilityAnalysis.matched_duties?.length" class="resp-matched">
+          <h3 class="resp-subtitle">Matched Duties</h3>
+          <div class="duty-list">
+            <div v-for="(duty, idx) in responsibilityAnalysis.matched_duties" :key="idx" class="duty-item">
+              <div class="duty-connection">
+                <span class="duty-job">{{ duty.job_duty }}</span>
+                <span class="duty-arrow">↔</span>
+                <span class="duty-resume">{{ duty.experience_duty }}</span>
+              </div>
+              <span class="duty-similarity">{{ (duty.similarity * 100).toFixed(0) }}% match</span>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="responsibilityAnalysis.unmatched_responsibilities?.length" class="resp-unmatched">
+          <h3 class="resp-subtitle">Job Duties Not Found in Resume</h3>
+          <div class="unmatched-list">
+            <span v-for="duty in responsibilityAnalysis.unmatched_responsibilities" :key="duty" class="unmatched-item">
+              {{ duty }}
+            </span>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
 </template>
@@ -362,6 +397,7 @@ const jobDescriptionResult = ref(null)
 const skillAnalysis = ref(null)
 const educationAnalysis = ref(null)
 const experienceAnalysis = ref(null)
+const responsibilityAnalysis = ref(null)
 const similarityScores = ref(null)
 const loading = ref(false)
 const jdLoading = ref(false)
@@ -500,12 +536,14 @@ async function analyze() {
   skillAnalysis.value = null
   educationAnalysis.value = null
   experienceAnalysis.value = null
+  responsibilityAnalysis.value = null
   try {
     const { data } = await analyzeResume(resumeFile.value, jobDescriptionResult.value)
     similarityScores.value = data.similarity_scores
     skillAnalysis.value = data.skill_analysis
     educationAnalysis.value = data.education_analysis
     experienceAnalysis.value = data.experience_analysis
+    responsibilityAnalysis.value = data.responsibility_analysis
   } catch (e) {
     error.value = e.response?.data?.detail || 'Analysis failed. Please try again.'
   } finally {
@@ -536,6 +574,13 @@ function getExpClass(levelValue) {
   if (levelValue >= 3) return 'mid'
   if (levelValue >= 2) return 'junior'
   return 'entry'
+}
+
+function getRespScoreClass(score) {
+  if (!score) return ''
+  if (score >= 80) return 'high'
+  if (score >= 50) return 'medium'
+  return 'low'
 }
 </script>
 
@@ -1512,5 +1557,143 @@ h1 {
 .exp-message.warning .exp-msg-icon {
   background: #f59e0b;
   color: #fff;
+}
+
+.responsibility-section {
+  margin-top: 2.5rem;
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.resp-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1e1b4b;
+  margin: 0 0 1rem;
+}
+
+.resp-score-card {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-radius: 12px;
+  margin-bottom: 1rem;
+}
+
+.resp-score-card.high {
+  background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+  color: #fff;
+}
+
+.resp-score-card.medium {
+  background: linear-gradient(135deg, #d97706 0%, #f59e0b 100%);
+  color: #fff;
+}
+
+.resp-score-card.low {
+  background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
+  color: #fff;
+}
+
+.resp-score-value {
+  font-size: 2rem;
+  font-weight: 800;
+}
+
+.resp-score-label {
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.resp-explanation {
+  font-size: 0.95rem;
+  color: #4b5563;
+  line-height: 1.5;
+  margin-bottom: 1.25rem;
+  padding: 0.75rem;
+  background: #f9fafb;
+  border-radius: 8px;
+  border-left: 3px solid #6366f1;
+}
+
+.resp-subtitle {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 0 0 0.75rem;
+}
+
+.resp-matched {
+  margin-bottom: 1.25rem;
+}
+
+.duty-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.duty-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.75rem;
+  background: #f0fdf4;
+  border-radius: 8px;
+  border-left: 3px solid #10b981;
+}
+
+.duty-connection {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.duty-job {
+  flex: 1;
+  font-size: 0.85rem;
+  color: #7c3aed;
+  font-weight: 500;
+}
+
+.duty-arrow {
+  color: #9ca3af;
+}
+
+.duty-resume {
+  flex: 1;
+  font-size: 0.85rem;
+  color: #059669;
+  font-weight: 500;
+}
+
+.duty-similarity {
+  font-size: 0.75rem;
+  color: #6b7280;
+  font-weight: 600;
+}
+
+.resp-unmatched {
+  margin-top: 1rem;
+}
+
+.unmatched-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.unmatched-item {
+  display: inline-block;
+  padding: 0.35rem 0.75rem;
+  background: #fef2f2;
+  color: #991b1b;
+  border-radius: 16px;
+  font-size: 0.85rem;
+  font-weight: 500;
 }
 </style>

@@ -1065,3 +1065,217 @@ def compare_experience(job_text: str, resume_text: str) -> Dict[str, any]:
         "meets_requirement": meets,
         "meets_message": "Resume meets experience requirement" if meets else ("Resume experience is below requirement" if job_exp.get("level_value") else "No experience requirement found"),
     }
+
+
+RESPONSIBILITY_ANCHORS = [
+    "responsibilities", "duties", "job duties", "key responsibilities",
+    "role responsibilities", "daily responsibilities", "what you will do",
+    "expected to", "will be responsible for", "main responsibilities",
+    "core duties", "primary duties", "position responsibilities",
+]
+
+EXPERIENCE_ANCHORS = [
+    "work experience", "professional experience", "employment history",
+    "work history", "career", "previous positions", "past positions",
+    "professional background", "industry experience", "years of experience",
+    "responsible for", "managed", "led", "developed", "designed", "implemented",
+    "collaborated", "coordinated", "organized", "oversaw", "delivered",
+]
+
+
+def _get_sbert_model():
+    global _model
+    if _model is None:
+        with _lock:
+            if _model is None:
+                from sentence_transformers import SentenceTransformer
+                _model = SentenceTransformer("all-mpnet-base-v2")
+    return _model
+
+
+def _extract_responsibilities(text: str) -> List[str]:
+    model = _get_sbert_model()
+    text_clean = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [l.strip() for l in text_clean.split("\n") if l.strip()]
+
+    sentences = []
+    for line in lines:
+        parts = re.split(r'(?<=[.!?])\s+', line)
+        for part in parts:
+            if len(part.strip()) > 20:
+                sentences.append(part.strip())
+
+    if not sentences:
+        return []
+
+    anchor_embeddings = model.encode(RESPONSIBILITY_ANCHORS, convert_to_numpy=True, show_progress_bar=False)
+    sentence_embeddings = model.encode(sentences, convert_to_numpy=True, show_progress_bar=False)
+
+    a_norm = anchor_embeddings / (np.linalg.norm(anchor_embeddings, axis=1, keepdims=True) + 1e-10)
+    s_norm = sentence_embeddings / (np.linalg.norm(sentence_embeddings, axis=1, keepdims=True) + 1e-10)
+
+    similarities = a_norm @ s_norm.T
+    max_sims = similarities.max(axis=0)
+
+    responsibilities = []
+    seen_resp = set()
+    for i, sentence in enumerate(sentences):
+        if max_sims[i] > 0.35:
+            norm_sent = sentence.lower().strip()
+            if norm_sent not in seen_resp:
+                seen_resp.add(norm_sent)
+                responsibilities.append(sentence)
+
+    return responsibilities
+
+
+def _extract_professional_experience(text: str) -> List[Dict[str, any]]:
+    model = _get_sbert_model()
+    text_clean = text.lower()
+
+    lines = []
+    current_role = "Professional Experience"
+    in_history = False
+
+    lines_list = text_clean.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+
+    for line in lines_list:
+        line = line.strip()
+        if not line:
+            continue
+        if any(phrase in line.lower() for phrase in ["experience", "employment", "work history", "career", "previous", "position"]):
+            in_history = True
+            current_role = line[:100]
+        elif in_history and len(line) > 30:
+            lines.append(line)
+
+    if not lines:
+        text_parts = text_clean.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        lines = [l.strip() for l in text_parts if len(l.strip()) > 30]
+
+    sentences = []
+    for line in lines:
+        parts = re.split(r'(?<=[.!?])\s+', line)
+        for part in parts:
+            if len(part.strip()) > 20:
+                sentences.append(part.strip())
+
+    if not sentences:
+        return []
+
+    anchor_embeddings = model.encode(EXPERIENCE_ANCHORS, convert_to_numpy=True, show_progress_bar=False)
+    sentence_embeddings = model.encode(sentences, convert_to_numpy=True, show_progress_bar=False)
+
+    a_norm = anchor_embeddings / (np.linalg.norm(anchor_embeddings, axis=1, keepdims=True) + 1e-10)
+    s_norm = sentence_embeddings / (np.linalg.norm(sentence_embeddings, axis=1, keepdims=True) + 1e-10)
+
+    similarities = a_norm @ s_norm.T
+    max_sims = similarities.max(axis=0)
+
+    experience_items = []
+    seen_exp = set()
+    for i, sentence in enumerate(sentences):
+        if max_sims[i] > 0.30:
+            norm_sent = sentence.lower().strip()
+            if norm_sent not in seen_exp:
+                seen_exp.add(norm_sent)
+                experience_items.append({
+                    "duty": sentence,
+                    "confidence": round(float(max_sims[i]), 3),
+                })
+
+    return experience_items
+
+
+def _semantic_compare_duties(
+    responsibilities: List[str],
+    experience_items: List[Dict[str, any]]
+) -> Dict[str, any]:
+    if not responsibilities or not experience_items:
+        return {
+            "matched_duties": [],
+            "unmatched_responsibilities": responsibilities if responsibilities else [],
+            "explanation": "Could not extract duties or experience to compare",
+            "score": 0,
+        }
+
+    model = _get_sbert_model()
+
+    resp_embeddings = model.encode(responsibilities, convert_to_numpy=True, show_progress_bar=False)
+    exp_texts = [item["duty"] for item in experience_items]
+    exp_embeddings = model.encode(exp_texts, convert_to_numpy=True, show_progress_bar=False)
+
+    r_norm = resp_embeddings / (np.linalg.norm(resp_embeddings, axis=1, keepdims=True) + 1e-10)
+    e_norm = exp_embeddings / (np.linalg.norm(exp_embeddings, axis=1, keepdims=True) + 1e-10)
+
+    similarity_matrix = r_norm @ e_norm.T
+
+    matched = []
+    unmatched = []
+    matched_exp_indices = set()
+    matched_resp_indices = set()
+
+    for i, resp in enumerate(responsibilities):
+        if i in matched_resp_indices:
+            continue
+            
+        best_j = -1
+        best_sim = 0.0
+        for j in range(len(exp_texts)):
+            if j in matched_exp_indices:
+                continue
+            if similarity_matrix[i, j] > best_sim:
+                best_sim = similarity_matrix[i, j]
+                best_j = j
+
+        if best_j >= 0 and best_sim > 0.50:
+            matched.append({
+                "job_duty": resp,
+                "experience_duty": exp_texts[best_j],
+                "similarity": round(float(best_sim), 3),
+            })
+            matched_exp_indices.add(best_j)
+            matched_resp_indices.add(i)
+        else:
+            unmatched.append(resp)
+
+    score = round(len(matched) / len(responsibilities) * 100, 1) if responsibilities else 0
+
+    explanation_parts = []
+    if score >= 80:
+        explanation_parts.append(f"Excellent match ({score}%): Resume demonstrates strong alignment with most job responsibilities through past roles.")
+    elif score >= 60:
+        explanation_parts.append(f"Good match ({score}%): Resume covers majority of expected duties with relevant experience patterns.")
+    elif score >= 40:
+        explanation_parts.append(f"Partial match ({score}%): Resume shows some relevant experience but missing key responsibilities.")
+    else:
+        explanation_parts.append(f"Low match ({score}%): Limited alignment found between job duties and resume experience.")
+
+    if matched:
+        sample_matched = matched[:2]
+        explanation_parts.append("Key aligned duties: " + "; ".join([m["job_duty"][:50] for m in sample_matched]))
+
+    explanation = " ".join(explanation_parts)
+
+    return {
+        "matched_duties": matched,
+        "unmatched_responsibilities": unmatched,
+        "explanation": explanation,
+        "score": score,
+    }
+
+
+def compare_responsibilities(job_text: str, resume_text: str) -> Dict[str, any]:
+    job_responsibilities = _extract_responsibilities(job_text)
+    resume_experience = _extract_professional_experience(resume_text)
+
+    comparison = _semantic_compare_duties(job_responsibilities, resume_experience)
+
+    return {
+        "job_responsibilities": job_responsibilities[:10],
+        "resume_experience_duties": resume_experience[:10],
+        "matched_duties": comparison["matched_duties"],
+        "unmatched_responsibilities": comparison["unmatched_responsibilities"],
+        "score": comparison["score"],
+        "explanation": comparison["explanation"],
+    }

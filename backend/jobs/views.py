@@ -6,7 +6,8 @@ from rest_framework.views import APIView
 
 from .parsers import extract_text
 from .categorizer import categorize, compute_similarity
-from .skills_extractor import extract_all_skills, compare_skills, compare_education, compare_experience
+from .skills_extractor import compare_skills, compare_education, compare_experience, compare_responsibilities
+from .skills_extractor import compare_skills, compare_education, compare_experience, compare_responsibilities
 from .serializers import (
     JobDescriptionUploadSerializer,
     CategorizedJobDescriptionSerializer,
@@ -16,6 +17,7 @@ from .serializers import (
     SkillAnalysisSerializer,
     EducationAnalysisSerializer,
     ExperienceAnalysisSerializer,
+    ResponsibilityAnalysisSerializer,
 )
 
 
@@ -55,14 +57,10 @@ class JobDescriptionAnalyzeView(APIView):
             )
 
         categorized = categorize(raw_text)
-        skills_data = extract_all_skills(raw_text)
 
         out_serializer = CategorizedJobDescriptionSerializer(data=categorized)
         out_serializer.is_valid(raise_exception=True)
-
-        result = out_serializer.validated_data
-        result["skills_data"] = sorted(skills_data)
-        return Response(result, status=status.HTTP_200_OK)
+        return Response(out_serializer.validated_data, status=status.HTTP_200_OK)
 
 
 class ResumeAnalyzeView(APIView):
@@ -116,6 +114,7 @@ class ResumeAnalyzeView(APIView):
         skill_analysis = compare_skills(job_text, resume_text)
         education_analysis = compare_education(job_text, resume_text)
         experience_analysis = compare_experience(job_text, resume_text)
+        responsibility_analysis = compare_responsibilities(job_text, resume_text)
 
         resume_serializer = CategorizedResumeSerializer(data=categorized_resume)
         resume_serializer.is_valid(raise_exception=True)
@@ -132,6 +131,9 @@ class ResumeAnalyzeView(APIView):
         exp_serializer = ExperienceAnalysisSerializer(data=experience_analysis)
         exp_serializer.is_valid(raise_exception=True)
 
+        resp_serializer = ResponsibilityAnalysisSerializer(data=responsibility_analysis)
+        resp_serializer.is_valid(raise_exception=True)
+
         return Response(
             {
                 "categorized_resume": resume_serializer.validated_data,
@@ -139,6 +141,7 @@ class ResumeAnalyzeView(APIView):
                 "skill_analysis": skill_serializer.validated_data,
                 "education_analysis": edu_serializer.validated_data,
                 "experience_analysis": exp_serializer.validated_data,
+                "responsibility_analysis": resp_serializer.validated_data,
             },
             status=status.HTTP_200_OK,
         )
