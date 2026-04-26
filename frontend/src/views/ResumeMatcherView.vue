@@ -219,28 +219,61 @@
       <section v-if="educationAnalysis" class="education-section">
         <h2 class="education-title">Education Qualification</h2>
 
-        <div class="education-cards">
-          <div class="education-card">
-            <h3 class="education-card-title">
-              <span class="education-icon">🎓</span>
+        <div class="education-comparison">
+          <div class="education-column">
+            <h3 class="education-column-title">
+              <span class="column-icon">📋</span>
               Job Requirement
             </h3>
-            <div v-if="educationAnalysis.job_highest" class="education-info">
-              <span class="education-level">{{ educationAnalysis.job_highest.type }}</span>
-              <span class="education-status" :class="educationAnalysis.meets_requirement ? 'meets' : 'below'">
-                {{ educationAnalysis.meets_requirement ? 'Meets Requirement' : 'Below Requirement' }}
-              </span>
+            <div v-if="educationAnalysis.job_highest" class="education-details">
+              <div class="edu-level-badge" :class="getLevelClass(educationAnalysis.job_highest.level_value)">
+                {{ educationAnalysis.job_highest.level }}
+              </div>
+              <div v-if="educationAnalysis.job_highest.qualification_type" class="edu-detail">
+                <span class="edu-label">Type:</span>
+                <span class="edu-value">{{ educationAnalysis.job_highest.qualification_type }}</span>
+              </div>
+              <div v-if="educationAnalysis.job_highest.major" class="edu-detail">
+                <span class="edu-label">Major:</span>
+                <span class="edu-value">{{ educationAnalysis.job_highest.major }}</span>
+              </div>
+              <div class="edu-majors">
+                <span class="majors-label">Majors Found:</span>
+                <div class="majors-list">
+                  <span v-for="major in educationAnalysis.job_majors" :key="major" class="major-tag job">
+                    {{ major }}
+                  </span>
+                </div>
+              </div>
             </div>
             <p v-else class="education-empty">No specific education requirement</p>
           </div>
 
-          <div class="education-card">
-            <h3 class="education-card-title">
-              <span class="education-icon">📜</span>
+          <div class="education-column">
+            <h3 class="education-column-title">
+              <span class="column-icon">📄</span>
               Resume Qualification
             </h3>
-            <div v-if="educationAnalysis.resume_highest" class="education-info">
-              <span class="education-level">{{ educationAnalysis.resume_highest.type }}</span>
+            <div v-if="educationAnalysis.resume_highest" class="education-details">
+              <div class="edu-level-badge" :class="getLevelClass(educationAnalysis.resume_highest.level_value)">
+                {{ educationAnalysis.resume_highest.level }}
+              </div>
+              <div v-if="educationAnalysis.resume_highest.qualification_type" class="edu-detail">
+                <span class="edu-label">Type:</span>
+                <span class="edu-value">{{ educationAnalysis.resume_highest.qualification_type }}</span>
+              </div>
+              <div v-if="educationAnalysis.resume_highest.major" class="edu-detail">
+                <span class="edu-label">Major:</span>
+                <span class="edu-value">{{ educationAnalysis.resume_highest.major }}</span>
+              </div>
+              <div class="edu-majors">
+                <span class="majors-label">Majors Found:</span>
+                <div class="majors-list">
+                  <span v-for="major in educationAnalysis.resume_majors" :key="major" class="major-tag resume">
+                    {{ major }}
+                  </span>
+                </div>
+              </div>
             </div>
             <p v-else class="education-empty">No education found in resume</p>
           </div>
@@ -249,6 +282,18 @@
         <div class="education-message" :class="educationAnalysis.meets_requirement ? 'success' : 'warning'">
           <span class="message-icon">{{ educationAnalysis.meets_requirement ? '✓' : '!' }}</span>
           <span>{{ educationAnalysis.meets_requirement_message }}</span>
+        </div>
+
+        <div v-if="educationAnalysis.matching_majors?.length" class="matching-majors">
+          <h4 class="matching-title">
+            <span class="matching-icon">🎯</span>
+            Matching Majors
+          </h4>
+          <div class="matching-list">
+            <span v-for="major in educationAnalysis.matching_majors" :key="major" class="matching-tag">
+              {{ major }}
+            </span>
+          </div>
         </div>
       </section>
     </main>
@@ -424,6 +469,15 @@ async function analyze() {
 async function handleLogout() {
   await auth.logout()
   router.push('/login')
+}
+
+function getLevelClass(levelValue) {
+  if (!levelValue) return ''
+  if (levelValue >= 5) return 'phd'
+  if (levelValue >= 4) return 'master'
+  if (levelValue >= 3) return 'bachelor'
+  if (levelValue >= 2) return 'associate'
+  return 'certificate'
 }
 </script>
 
@@ -1033,7 +1087,7 @@ h1 {
   margin: 0 0 1rem;
 }
 
-.education-cards {
+.education-comparison {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1.5rem;
@@ -1041,19 +1095,19 @@ h1 {
 }
 
 @media (max-width: 640px) {
-  .education-cards {
+  .education-comparison {
     grid-template-columns: 1fr;
   }
 }
 
-.education-card {
+.education-column {
   background: #fff;
   border-radius: 12px;
   padding: 1.25rem;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
-.education-card-title {
+.education-column-title {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -1063,39 +1117,109 @@ h1 {
   color: #1f2937;
 }
 
-.education-icon {
+.column-icon {
   font-size: 1.25rem;
 }
 
-.education-info {
+.education-details {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.75rem;
 }
 
-.education-level {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #1e1b4b;
-}
-
-.education-status {
+.edu-level-badge {
   display: inline-block;
-  padding: 0.25rem 0.75rem;
-  border-radius: 20px;
-  font-size: 0.85rem;
-  font-weight: 600;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 1.1rem;
+  font-weight: 700;
   width: fit-content;
 }
 
-.education-status.meets {
-  background: #d1fae5;
-  color: #065f46;
+.edu-level-badge.phd {
+  background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%);
+  color: #fff;
 }
 
-.education-status.below {
-  background: #fee2e2;
-  color: #991b1b;
+.edu-level-badge.master {
+  background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+  color: #fff;
+}
+
+.edu-level-badge.bachelor {
+  background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+  color: #fff;
+}
+
+.edu-level-badge.associate {
+  background: linear-gradient(135deg, #d97706 0%, #f59e0b 100%);
+  color: #fff;
+}
+
+.edu-level-badge.certificate {
+  background: linear-gradient(135deg, #6b7280 0%, #9ca3af 100%);
+  color: #fff;
+}
+
+.edu-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.edu-label {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.edu-value {
+  font-size: 0.95rem;
+  color: #1f2937;
+  font-weight: 500;
+}
+
+.edu-majors {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.majors-label {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.majors-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.major-tag {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 16px;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.major-tag.job {
+  background: #ede9fe;
+  color: #7c3aed;
+}
+
+.major-tag.resume {
+  background: #d1fae5;
+  color: #065f46;
 }
 
 .education-empty {
@@ -1144,5 +1268,44 @@ h1 {
 .education-message.warning .message-icon {
   background: #f59e0b;
   color: #fff;
+}
+
+.matching-majors {
+  margin-top: 1rem;
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  border-left: 4px solid #10b981;
+}
+
+.matching-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem;
+  color: #1f2937;
+}
+
+.matching-icon {
+  font-size: 1.1rem;
+}
+
+.matching-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.matching-tag {
+  display: inline-block;
+  padding: 0.35rem 0.85rem;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+  color: #065f46;
 }
 </style>

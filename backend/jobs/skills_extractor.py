@@ -14,6 +14,12 @@ _edu_embeddings: Optional[np.ndarray] = None
 _edu_labels: Optional[List[str]] = None
 _edu_levels: Optional[Dict[str, int]] = None
 
+_major_embeddings: Optional[np.ndarray] = None
+_major_labels: Optional[List[str]] = None
+
+_qual_embeddings: Optional[np.ndarray] = None
+_qual_labels: Optional[List[str]] = None
+
 SKILL_THRESHOLD = 0.55
 MATCH_THRESHOLD = 0.70
 EDU_THRESHOLD = 0.60
@@ -357,44 +363,6 @@ def compare_skills(job_text: str, resume_text: str) -> Dict[str, any]:
     }
 
 
-EDUCATION_PATTERNS: Dict[str, List[str]] = {
-    "PhD": [
-        "phd", "ph.d", "ph d", "doctor of philosophy", "doctorate",
-        "doctoral", "phd degree", "doctorate degree", "phd in computer science",
-        "phd in mathematics", "phd in engineering", "phd in data science",
-        "philosophy doctorate", "doctorate holder",
-    ],
-    "Master's": [
-        "master", "master's", "masters", "master's degree", "ms", "m.s",
-        "m.sc", "mba", "mba degree", "msc", "msc degree", "ma", "m.a",
-        "master of science", "master of arts", "master of business",
-        "master of computer applications", "mca", "master degree",
-        "postgraduate", "post graduate", "pg degree", "postgrad",
-        "mtech", "m.tech", "m eng", "m.eng", "mtECH",
-        "ms in computer science", "master's in", "ms degree",
-    ],
-    "Bachelor's": [
-        "bachelor", "bachelor's", "bachelors", "bachelor's degree",
-        "bs", "b.s", "bsc", "bsc degree", "bs degree", "bachelor degree",
-        "b.e", "be", "b tech", "btech", "b.tech", "bachelor of engineering",
-        "bachelor of science", "bachelor of arts", "ba", "b.a",
-        "undergraduate", "under grad", "ug degree",
-        "bs in computer science", "bachelor's in", "bs degree",
-        "engineering degree", "computer science degree",
-        "graduated with", "b.sc", "b sc",
-    ],
-    "Associate": [
-        "associate", "associate's", "associate degree", "ad", "a.s",
-        "associate of science", "associate of arts", "diploma",
-        "advanced diploma", "higher diploma", "diploma holder",
-    ],
-    "Certificate": [
-        "certificate", "certification", "certified", "certificate course",
-        "professional certificate", "google certified", "aws certified",
-        "microsoft certified", "comptia", "certs", "certified in",
-    ],
-}
-
 EDUCATION_LEVELS: Dict[str, int] = {
     "Certificate": 1,
     "Associate": 2,
@@ -403,123 +371,346 @@ EDUCATION_LEVELS: Dict[str, int] = {
     "PhD": 5,
 }
 
+EDUCATION_LEVEL_PATTERNS: Dict[str, List[str]] = {
+    "PhD": [
+        "phd", "ph.d", "ph d", "doctor of philosophy", "doctorate",
+        "doctoral", "phd degree", "doctorate degree", "phd in",
+        "philosophy doctorate", "doctorate holder", "d.phil",
+        "doctor of science", "d.sc", "d.litt",
+    ],
+    "Master's": [
+        "master", "master's", "masters", "master's degree", "ms", "m.s",
+        "m.sc", "mba", "mba degree", "msc", "msc degree", "ma", "m.a",
+        "master of science", "master of arts", "master of business",
+        "master of computer applications", "mca", "master degree",
+        "postgraduate", "post graduate", "pg degree", "postgrad",
+        "mtech", "m.tech", "m eng", "m.eng", "mtECH", "m.sc.",
+        "ms in", "master's in", "ms degree", "post graduate degree",
+        " postgraduate degree",
+    ],
+    "Bachelor's": [
+        "bachelor", "bachelor's", "bachelors", "bachelor's degree",
+        "bs", "b.s", "bsc", "bsc degree", "bs degree", "bachelor degree",
+        "b.e", "be", "b tech", "btech", "b.tech", "bachelor of engineering",
+        "bachelor of science", "bachelor of arts", "ba", "b.a",
+        "undergraduate", "under grad", "ug degree",
+        "bs in", "bachelor's in", "bs degree", "b.sc.", "b.sc",
+        "engineering degree", "computer science degree",
+        "graduated with", "graduate in", "graduated from",
+        "bsc(hons)", "b.sc (hons)", "bachelor honours",
+    ],
+    "Associate": [
+        "associate", "associate's", "associate degree", "ad", "a.s",
+        "associate of science", "associate of arts", "associate degree in",
+        "advanced diploma", "higher diploma", "diploma holder", "diploma in",
+        "foundation degree",
+    ],
+    "Certificate": [
+        "certificate", "certification", "certified", "certificate course",
+        "professional certificate", "google certified", "aws certified",
+        "microsoft certified", "comptia", "certs", "certified in",
+        "certificate program", "nanodegree", "microdegree",
+    ],
+}
 
-def _build_education_database():
+MAJOR_PATTERNS: Dict[str, List[str]] = {
+    "Computer Science": [
+        "computer science", "computer science", "cs", "computer sciences",
+        "computing", "computational science", "computer science and engineering",
+        "cs major", "computer science degree",
+    ],
+    "Software Engineering": [
+        "software engineering", "software engineer", "se", "software development",
+        "software technology", "software systems", "software design",
+        "software engineering degree",
+    ],
+    "Information Technology": [
+        "information technology", "it", "information systems", "is",
+        "information technology management", "it management",
+        "business it", "it solutions",
+    ],
+    "Data Science": [
+        "data science", "data scientist", "ds", "data analytics", "analytics",
+        "data engineering", "data analysis", "big data",
+        "data science and analytics",
+    ],
+    "Artificial Intelligence": [
+        "artificial intelligence", "ai", "machine learning", "ml",
+        "deep learning", "neural networks", "ai ml", "intelligent systems",
+        "natural language processing", "computer vision",
+    ],
+    "Electrical Engineering": [
+        "electrical engineering", "ee", "electronics", "electronic engineering",
+        "electronics and communication", "ece", "electrical and electronics",
+        "power systems", "control systems",
+    ],
+    "Mechanical Engineering": [
+        "mechanical engineering", "me", "mech", "mechanical",
+        "automobile engineering", "automotive engineering", "manufacturing",
+    ],
+    "Civil Engineering": [
+        "civil engineering", "structural engineering", "construction",
+        "environmental engineering", "geotechnical",
+    ],
+    "Business Administration": [
+        "business administration", "business management", "mba",
+        "business analytics", "business studies", "commerce",
+        "business", "management studies",
+    ],
+    "Mathematics": [
+        "mathematics", "maths", "applied mathematics", "statistics",
+        "math", "mathematical sciences",
+    ],
+    "Physics": [
+        "physics", "applied physics", "theoretical physics", "astrophysics",
+    ],
+    "Cybersecurity": [
+        "cyber security", "cybersecurity", "information security",
+        "network security", "security", "cyber defense",
+    ],
+    "Cloud Computing": [
+        "cloud computing", "cloud", "cloud architecture", "cloud services",
+    ],
+    "Web Development": [
+        "web development", "web design", "web engineering",
+        "frontend", "backend", "full stack", "fullstack",
+    ],
+    "Mobile Development": [
+        "mobile development", "mobile computing", "ios development",
+        "android development", "mobile apps",
+    ],
+    "Database": [
+        "database", "database management", "db", "data management",
+        "database systems", "dbms",
+    ],
+    "Networking": [
+        "networking", "computer networks", "network engineering",
+        "telecommunications", "communication",
+    ],
+}
+
+QUALIFICATION_TYPE_PATTERNS: Dict[str, List[str]] = {
+    "Bachelor of Science": [
+        "bachelor of science", "b.sc", "bsc", "bs", "b.s", "bachelor science",
+        "bsci", "bachelor of scientific studies",
+    ],
+    "Bachelor of Engineering": [
+        "bachelor of engineering", "b.e", "be", "bachelor engineering",
+        "bachelor of technology", "b.tech", "btech", "btECH",
+        "bachelor of applied sciences",
+    ],
+    "Bachelor of Arts": [
+        "bachelor of arts", "b.a", "ba", "bachelor arts",
+        "ba hon", "ba(hons)", "bachelor of humanities",
+    ],
+    "Master of Science": [
+        "master of science", "m.sc", "msc", "ms", "m.s", "master science",
+        "msci", "master of scientific studies", "msc.",
+    ],
+    "Master of Engineering": [
+        "master of engineering", "m.e", "me", "m.eng", "meng",
+        "master of technology", "m.tech", "mtECH",
+    ],
+    "Master of Arts": [
+        "master of arts", "m.a", "ma", "master arts",
+    ],
+    "Master of Business Administration": [
+        "master of business administration", "mba", "executive mba",
+        "international mba", "mba degree",
+    ],
+    "Doctor of Philosophy": [
+        "doctor of philosophy", "phd", "ph.d", "ph d", "doctorate",
+        "doctoral degree", "doctor of science",
+    ],
+}
+
+
+def _build_education_semantic_db():
     global _edu_embeddings, _edu_labels, _edu_levels
+    global _major_embeddings, _major_labels
+    global _qual_embeddings, _qual_labels
 
     if _edu_embeddings is not None:
         return
 
     model = _get_model()
 
-    all_labels: List[str] = []
-    for edu_type, variants in EDUCATION_PATTERNS.items():
+    edu_labels = []
+    for edu_type, variants in EDUCATION_LEVEL_PATTERNS.items():
         for variant in variants:
-            all_labels.append(variant.lower().strip())
-
-    _edu_labels = all_labels
+            edu_labels.append(variant.lower().strip())
+    _edu_labels = edu_labels
     _edu_levels = EDUCATION_LEVELS
-    _edu_embeddings = model.encode(all_labels, convert_to_numpy=True, show_progress_bar=False)
+    _edu_embeddings = model.encode(edu_labels, convert_to_numpy=True, show_progress_bar=False)
+
+    major_labels = []
+    for major, variants in MAJOR_PATTERNS.items():
+        for variant in variants:
+            major_labels.append(variant.lower().strip())
+    _major_labels = major_labels
+    _major_embeddings = model.encode(major_labels, convert_to_numpy=True, show_progress_bar=False)
+
+    qual_labels = []
+    for qual, variants in QUALIFICATION_TYPE_PATTERNS.items():
+        for variant in variants:
+            qual_labels.append(variant.lower().strip())
+    _qual_labels = qual_labels
+    _qual_embeddings = model.encode(qual_labels, convert_to_numpy=True, show_progress_bar=False)
 
 
-def _extract_education_keywords(text: str) -> Dict[str, List[Dict[str, any]]]:
-    found_education: Dict[str, List[Dict[str, any]]] = {edu_type: [] for edu_type in EDUCATION_PATTERNS}
-
+def _semantic_extract_component(
+    text: str,
+    patterns: Dict[str, List[str]],
+    embeddings: np.ndarray,
+    all_labels: List[str],
+    threshold: float = 0.55
+) -> List[Dict[str, any]]:
+    model = _get_model()
     text_lower = text.lower()
 
-    for edu_type, variants in EDUCATION_PATTERNS.items():
+    sentences = re.split(r'[.!?\n]+', text_lower)
+    sentences = [s.strip() for s in sentences if len(s.strip()) > 8]
+
+    if not sentences:
+        return []
+
+    text_embeddings = model.encode(sentences, convert_to_numpy=True, show_progress_bar=False)
+
+    found = []
+
+    for pattern_type, variants in patterns.items():
+        type_indices = []
+        for idx, label in enumerate(all_labels):
+            for variant in variants:
+                if variant in label or label in variant:
+                    type_indices.append(idx)
+                    break
+
+        if not type_indices:
+            continue
+
+        type_embs = embeddings[type_indices]
+
+        for i, sent_emb in enumerate(text_embeddings):
+            similarities = type_embs @ sent_emb
+            max_sim = float(np.max(similarities))
+
+            if max_sim >= threshold:
+                for variant in variants:
+                    pattern = r'\b' + re.escape(variant.lower()) + r'(?:[,\s]|$|\.)'
+                    if re.search(pattern, sentences[i]):
+                        found.append({
+                            "type": pattern_type,
+                            "variant": variant,
+                            "sentence": sentences[i].strip(),
+                            "confidence": round(max_sim, 3),
+                        })
+                        break
+
+    return found
+
+
+def _keyword_extract(text: str, patterns: Dict[str, List[str]]) -> List[Dict[str, any]]:
+    text_lower = text.lower()
+    found = []
+
+    for pattern_type, variants in patterns.items():
         for variant in variants:
             pattern = r'\b' + re.escape(variant.lower()) + r'(?:[,\s]|$|\.)'
             matches = list(re.finditer(pattern, text_lower))
 
             for match in matches:
-                start_pos = max(0, match.start() - 100)
-                end_pos = min(len(text_lower), match.end() + 100)
-                context = text_lower[start_pos:end_pos].strip()
+                start = max(0, match.start() - 50)
+                end = min(len(text_lower), match.end() + 50)
+                context = text_lower[start:end].strip()
 
-                found_entry = {
-                    "type": edu_type,
-                    "level": EDUCATION_LEVELS[edu_type],
-                    "confidence": 1.0,
+                found.append({
+                    "type": pattern_type,
+                    "variant": variant,
                     "context": context,
-                    "matched_variant": variant,
                     "position": match.start(),
-                }
+                    "confidence": 1.0,
+                })
 
-                if found_entry not in found_education[edu_type]:
-                    found_education[edu_type].append(found_entry)
-
-    return {edu_type: items for edu_type, items in found_education.items() if items}
+    return found
 
 
-def _semantic_education_verify(text: str, education_data: Dict[str, List[Dict[str, any]]]) -> Dict[str, List[Dict[str, any]]]:
-    _build_education_database()
-
-    model = _get_model()
-    text_lower = text.lower()
-
-    sentences = re.split(r'[.!?\n]+', text_lower)
-    sentences = [s.strip() for s in sentences if len(s.strip()) > 10]
-    sentences = [s for s in sentences if any(v.lower() in s for cat in EDUCATION_PATTERNS.values() for v in cat)]
-
-    if not sentences:
-        return education_data
-
-    text_embeddings = model.encode(sentences, convert_to_numpy=True, show_progress_bar=False)
-
-    verified_types = set()
-
-    for edu_type, variants in EDUCATION_PATTERNS.items():
-        type_indices = []
-        for idx, label in enumerate(_edu_labels):
-            for variant in variants:
-                if variant in label or label in variant:
-                    type_indices.append(idx)
-
-        if not type_indices:
-            continue
-
-        type_embeddings = _edu_embeddings[type_indices]
-
-        for i, sentence_emb in enumerate(text_embeddings):
-            similarities = type_embeddings @ sentence_emb
-            max_sim = float(np.max(similarities))
-
-            if max_sim >= 0.50:
-                for variant in variants:
-                    pattern = r'\b' + re.escape(variant.lower()) + r'\b'
-                    if re.search(pattern, sentences[i]):
-                        if edu_type not in verified_types:
-                            verified_types.add(edu_type)
-
-                        already_found = any(
-                            e["type"] == edu_type and e["matched_variant"] == variant
-                            for items in education_data.values()
-                            for e in items
-                        )
-
-                        if not already_found:
-                            context_start = max(0, i - 1)
-                            context_end = min(len(sentences), i + 2)
-                            context = " ".join(sentences[context_start:context_end])
-
-                            education_data.setdefault(edu_type, []).append({
-                                "type": edu_type,
-                                "level": EDUCATION_LEVELS[edu_type],
-                                "confidence": round(max_sim, 3),
-                                "context": context.strip(),
-                                "matched_variant": variant,
-                            })
-
-                        break
-
-    return education_data
+def _build_education_entry(level: str, major: str, qual_type: str, context: str) -> Dict[str, any]:
+    return {
+        "level": level,
+        "level_value": EDUCATION_LEVELS.get(level, 0),
+        "major": major,
+        "qualification_type": qual_type,
+        "full_qualification": f"{qual_type} in {major}" if major and qual_type else (qual_type or level),
+        "context": context,
+    }
 
 
 def extract_education(text: str) -> Dict[str, List[Dict[str, any]]]:
-    keyword_results = _extract_education_keywords(text)
+    _build_education_semantic_db()
 
-    result = _semantic_education_verify(text, keyword_results)
+    text_lower = text.lower()
+
+    keyword_levels = _keyword_extract(text_lower, EDUCATION_LEVEL_PATTERNS)
+    keyword_majors = _keyword_extract(text_lower, MAJOR_PATTERNS)
+    keyword_quals = _keyword_extract(text_lower, QUALIFICATION_TYPE_PATTERNS)
+
+    semantic_levels = _semantic_extract_component(
+        text_lower, EDUCATION_LEVEL_PATTERNS, _edu_embeddings, _edu_labels, 0.50
+    )
+    semantic_majors = _semantic_extract_component(
+        text_lower, MAJOR_PATTERNS, _major_embeddings, _major_labels, 0.55
+    )
+    semantic_quals = _semantic_extract_component(
+        text_lower, QUALIFICATION_TYPE_PATTERNS, _qual_embeddings, _qual_labels, 0.55
+    )
+
+    all_levels = {item["type"]: item for item in keyword_levels}
+    for item in semantic_levels:
+        if item["type"] not in all_levels or item["confidence"] > all_levels[item["type"]]["confidence"]:
+            all_levels[item["type"]] = {"type": item["type"], "variant": item["variant"], "confidence": item["confidence"]}
+
+    all_majors = {item["type"]: item for item in keyword_majors}
+    for item in semantic_majors:
+        if item["type"] not in all_majors or item["confidence"] > all_majors[item["type"]]["confidence"]:
+            all_majors[item["type"]] = {"type": item["type"], "variant": item["variant"], "confidence": item["confidence"]}
+
+    all_quals = {item["type"]: item for item in keyword_quals}
+    for item in semantic_quals:
+        if item["type"] not in all_quals or item["confidence"] > all_quals[item["type"]]["confidence"]:
+            all_quals[item["type"]] = {"type": item["type"], "variant": item["variant"], "confidence": item["confidence"]}
+
+    result: Dict[str, List[Dict[str, any]]] = {edu_type: [] for edu_type in EDUCATION_LEVEL_PATTERNS}
+
+    for level_name, level_data in all_levels.items():
+        major = None
+        if all_majors:
+            major_data = next(iter(all_majors.values()))
+            major = major_data["type"]
+
+        qual_type = None
+        if all_quals:
+            qual_data = next(iter(all_quals.values()))
+            qual_type = qual_data["type"]
+
+        context = level_data.get("variant", level_name)
+        if all_majors:
+            major_data = next((m for m in all_majors.values() if m["confidence"] >= 0.8), None)
+            if major_data:
+                context += f" - {major_data['variant']}"
+                major = major_data["type"]
+
+        entry = {
+            "type": level_name,
+            "level": level_name,
+            "level_value": EDUCATION_LEVELS.get(level_name, 0),
+            "major": major,
+            "qualification_type": qual_type,
+            "confidence": level_data["confidence"],
+            "context": context,
+        }
+
+        result[level_name].append(entry)
 
     return {edu_type: items for edu_type, items in result.items() if items}
 
@@ -533,8 +724,9 @@ def get_highest_education(education_data: Dict[str, List[Dict[str, any]]]) -> Op
 
     for edu_type, items in education_data.items():
         for item in items:
-            if item["level"] > highest_level:
-                highest_level = item["level"]
+            level_val = item.get("level_value") or EDUCATION_LEVELS.get(item.get("level")) or 0
+            if level_val > highest_level:
+                highest_level = level_val
                 highest = item
 
     return highest
@@ -563,7 +755,10 @@ def meets_requirement(
             "message": "No education qualifications found in resume",
         }
 
-    meets = resume_highest["level"] >= job_highest["level"]
+    job_level = job_highest.get("level_value") or EDUCATION_LEVELS.get(job_highest.get("level")) or 0
+    resume_level = resume_highest.get("level_value") or EDUCATION_LEVELS.get(resume_highest.get("level")) or 0
+
+    meets = resume_level >= job_level
 
     return {
         "meets_requirement": meets,
@@ -582,9 +777,12 @@ def compare_education(job_text: str, resume_text: str) -> Dict[str, any]:
         for item in items:
             job_flat.append({
                 "type": edu_type,
-                "level": item["level"],
-                "context": item["context"],
-                "confidence": item["confidence"],
+                "level": item.get("level"),
+                "level_value": item.get("level_value"),
+                "major": item.get("major"),
+                "qualification_type": item.get("qualification_type"),
+                "context": item.get("context"),
+                "confidence": item.get("confidence"),
             })
 
     resume_flat = []
@@ -592,9 +790,12 @@ def compare_education(job_text: str, resume_text: str) -> Dict[str, any]:
         for item in items:
             resume_flat.append({
                 "type": edu_type,
-                "level": item["level"],
-                "context": item["context"],
-                "confidence": item["confidence"],
+                "level": item.get("level"),
+                "level_value": item.get("level_value"),
+                "major": item.get("major"),
+                "qualification_type": item.get("qualification_type"),
+                "context": item.get("context"),
+                "confidence": item.get("confidence"),
             })
 
     requirement_check = meets_requirement(job_education, resume_education)
@@ -609,4 +810,10 @@ def compare_education(job_text: str, resume_text: str) -> Dict[str, any]:
         "resume_highest": resume_highest,
         "meets_requirement": requirement_check["meets_requirement"],
         "meets_requirement_message": requirement_check["message"],
+        "job_majors": list(set(item.get("major") for item in job_flat if item.get("major"))),
+        "resume_majors": list(set(item.get("major") for item in resume_flat if item.get("major"))),
+        "matching_majors": list(set(
+            m for m in (set(item.get("major") for item in job_flat if item.get("major")))
+            if m in set(item.get("major") for item in resume_flat if item.get("major"))
+        )),
     }
