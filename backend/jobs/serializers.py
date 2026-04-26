@@ -83,3 +83,18 @@ class EducationAnalysisSerializer(serializers.Serializer):
     job_majors = serializers.ListField(child=serializers.CharField())
     resume_majors = serializers.ListField(child=serializers.CharField())
     matching_majors = serializers.ListField(child=serializers.CharField())
+
+
+class ExperienceSerializer(serializers.Serializer):
+    required_years = serializers.CharField(allow_null=True)
+    years_text = serializers.CharField(allow_null=True)
+    level = serializers.CharField(allow_null=True)
+    level_value = serializers.IntegerField(allow_null=True)
+    context = serializers.CharField(allow_null=True)
+
+
+class ExperienceAnalysisSerializer(serializers.Serializer):
+    job_experience = ExperienceSerializer()
+    resume_experience = ExperienceSerializer()
+    meets_requirement = serializers.BooleanField()
+    meets_message = serializers.CharField()

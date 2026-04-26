@@ -817,3 +817,251 @@ def compare_education(job_text: str, resume_text: str) -> Dict[str, any]:
             if m in set(item.get("major") for item in resume_flat if item.get("major"))
         )),
     }
+
+
+EXPERIENCE_PATTERNS: Dict[str, List[str]] = {
+    "Entry Level (0-1 years)": [
+        "0-1 years", "0 to 1 year", "1 year", "0 years", "fresh graduate", "fresh graduate",
+        "new graduate", "no experience required", "entry level", "junior", "fresher",
+    ],
+    "Junior (1-2 years)": [
+        "1-2 years", "1 to 2 years", "2 years", "1 year minimum",
+        "one year", "one to two years", "1+ year", "1+ years",
+    ],
+    "Mid-Level (2-3 years)": [
+        "2-3 years", "2 to 3 years", "3 years", "2 years minimum",
+        "two year", "two to three years", "2+ year", "2+ years",
+        "mid level", "mid-level", "intermediate",
+    ],
+    "Senior (3-5 years)": [
+        "3-5 years", "3 to 5 years", "5 years", "3 years minimum",
+        "three year", "three to five years", "3+ year", "3+ years", "4 years",
+        "senior", "senior level", "3-4 years",
+    ],
+    "Lead (5-7 years)": [
+        "5-7 years", "5 to 7 years", "7 years", "5 years minimum",
+        "five year", "five to seven years", "5+ year", "5+ years", "6 years",
+        "lead", "lead level", "team lead",
+    ],
+    "Principal (7-10 years)": [
+        "7-10 years", "7 to 10 years", "10 years", "7 years minimum",
+        "seven year", "seven to ten years", "7+ year", "7+ years",
+        "principal", "principal level", "8 years", "9 years",
+    ],
+    "Expert (10+ years)": [
+        "10+ years", "10 years plus", "more than 10 years", "10-12 years",
+        "expert", "expert level", "senior expert", "staff", "staff engineer",
+        "10 years minimum", "10+", "ten plus years",
+    ],
+}
+
+EXPERIENCE_LEVELS: Dict[str, int] = {
+    "Entry Level (0-1 years)": 1,
+    "Junior (1-2 years)": 2,
+    "Mid-Level (2-3 years)": 3,
+    "Senior (3-5 years)": 4,
+    "Lead (5-7 years)": 5,
+    "Principal (7-10 years)": 6,
+    "Expert (10+ years)": 7,
+}
+
+
+def _extract_experience_years(text: str) -> Dict[str, List[Dict[str, any]]]:
+    text_lower = text.lower()
+
+    title_words = {'senior', 'junior', 'lead', 'principal', 'staff', 'manager', 'director', 'head', 'chief', 'intern', 'associate'}
+    context_exclude_patterns = [
+        r'\bsenior\s+(software|software engineer|software developer|engineer|developer|analyst|designer|architect|consultant|manager|lead|director)',
+        r'\bjunior\s+(software|software engineer|software developer|engineer|developer|analyst|designer)',
+        r'\blead\s+(software|software engineer|software developer|engineer|developer|analyst|designer|manager)',
+        r'\bprincipal\s+(software|software engineer|software developer|engineer|developer|architect|analyst)',
+        r'\bstaff\s+(software|software engineer|software developer|engineer|developer|analyst)',
+        r'\bsenior\s+(lecturer|professor|teacher|academic|faculty|researcher|research associate)',
+        r'\bjunior\s+(lecturer|professor|teacher|academic|faculty|researcher)',
+        r'\bsenior\s+(advisor|counselor|consultant|specialist|coordinator)',
+        r'\breferences?\s*[:|-]',
+        r'\breference\s+(name|contact|person)',
+    ]
+
+    found: Dict[str, List[Dict[str, any]]] = {exp_type: [] for exp_type in EXPERIENCE_PATTERNS}
+
+    for exp_type, variants in EXPERIENCE_PATTERNS.items():
+        for variant in variants:
+            pattern = r'\b' + re.escape(variant.lower()) + r'\b'
+            matches = list(re.finditer(pattern, text_lower))
+
+            for match in matches:
+                start_pos = match.start()
+                end_pos = match.end()
+                context_start = max(0, start_pos - 80)
+                context_end = min(len(text_lower), end_pos + 80)
+                context = text_lower[context_start:context_end].strip()
+
+                is_title_context = any(re.search(exclude_pat, context, re.IGNORECASE) for exclude_pat in context_exclude_patterns)
+
+                if variant.lower() in title_words and is_title_context:
+                    continue
+
+                found[exp_type].append({
+                    "type": exp_type,
+                    "years": exp_type.split()[1].strip('()') if len(exp_type.split()) > 1 else exp_type,
+                    "level": EXPERIENCE_LEVELS[exp_type],
+                    "variant": variant,
+                    "context": context,
+                    "confidence": 0.5,
+                })
+
+    return {exp_type: items for exp_type, items in found.items() if items}
+
+
+def _extract_years_numbers(text: str) -> List[Dict[str, any]]:
+    text_lower = text.lower()
+
+    years_patterns = [
+        (r'(\d+)\+?\s*(?:years?|yrs?)\s*(?:of)?\s*(?:experience|exp|professional)', 'explicit_years'),
+        (r'(\d+)\s*(?:to|-)\s*(\d+)\s*(?:years?|yrs?)', 'range_years'),
+        (r'(?:minimum|min)\s*(\d+)\s*(?:years?|yrs?)', 'min_years'),
+        (r'(?:at least|atleast)\s*(\d+)\s*(?:years?|yrs?)', 'atleast_years'),
+        (r'(?:over|more than)\s*(\d+)\s*(?:years?|yrs?)', 'over_years'),
+        (r'(\d+)\s*\+\s*(?:years?|yrs?)', 'plus_years'),
+    ]
+
+    found = []
+    seen_years = set()
+
+    for pattern, match_type in years_patterns:
+        matches = list(re.finditer(pattern, text_lower))
+        for match in matches:
+            if match_type == 'range_years':
+                years = int(match.group(2))
+            else:
+                years = int(match.group(1))
+
+            if years in seen_years:
+                continue
+            seen_years.add(years)
+
+            type_name = "Entry Level (0-1 years)"
+            if years >= 10:
+                type_name = "Expert (10+ years)"
+            elif years >= 7:
+                type_name = "Principal (7-10 years)"
+            elif years >= 5:
+                type_name = "Lead (5-7 years)"
+            elif years >= 3:
+                type_name = "Senior (3-5 years)"
+            elif years >= 2:
+                type_name = "Mid-Level (2-3 years)"
+            elif years >= 1:
+                type_name = "Junior (1-2 years)"
+            else:
+                type_name = "Entry Level (0-1 years)"
+
+            start = max(0, match.start() - 50)
+            end = min(len(text_lower), match.end() + 50)
+            context = text_lower[start:end].strip()
+
+            found.append({
+                "type": type_name,
+                "years": years,
+                "level": EXPERIENCE_LEVELS[type_name],
+                "variant": match.group(0),
+                "context": context,
+                "confidence": 0.98,
+            })
+
+    return found
+
+
+def extract_experience_requirement(text: str) -> Dict[str, any]:
+    pattern_results = _extract_experience_years(text)
+    number_results = _extract_years_numbers(text)
+
+    all_results = {exp_type: [] for exp_type in EXPERIENCE_PATTERNS}
+
+    for exp_type, items in pattern_results.items():
+        for item in items:
+            all_results[exp_type].append(item)
+
+    for item in number_results:
+        exp_type = item["type"]
+        if item not in all_results[exp_type]:
+            all_results[exp_type].append(item)
+
+    numeric_years = 0
+    numeric_result = None
+
+    for item in number_results:
+        years_val = item.get("years")
+        try:
+            years = int(years_val) if years_val else 0
+        except (ValueError, TypeError):
+            years = 0
+        if years > numeric_years:
+            numeric_years = years
+            numeric_result = item
+
+    if numeric_result:
+        return {
+            "required_years": numeric_result.get("years"),
+            "years_text": numeric_result.get("type"),
+            "level": numeric_result.get("type"),
+            "level_value": numeric_result.get("level"),
+            "context": numeric_result.get("context"),
+        }
+
+    highest = None
+    highest_level = 0
+    highest_years = 0
+
+    for exp_type, items in all_results.items():
+        for item in items:
+            level = item.get("level", 0)
+            years_val = item.get("years")
+
+            try:
+                years = int(years_val) if years_val else 0
+            except (ValueError, TypeError):
+                years = 0
+
+            if years > highest_years:
+                highest_years = years
+                highest_level = level
+                highest = item
+            elif years == highest_years and level > highest_level:
+                highest_level = level
+                highest = item
+
+    if not highest:
+        return {
+            "required_years": None,
+            "years_text": None,
+            "level": None,
+            "level_value": None,
+            "context": None,
+        }
+
+    return {
+        "required_years": highest.get("years"),
+        "years_text": highest.get("type"),
+        "level": highest.get("type"),
+        "level_value": highest.get("level"),
+        "context": highest.get("context"),
+    }
+
+
+def compare_experience(job_text: str, resume_text: str) -> Dict[str, any]:
+    job_exp = extract_experience_requirement(job_text)
+    resume_exp = extract_experience_requirement(resume_text)
+
+    job_years = job_exp.get("level_value") or 0
+    resume_years = resume_exp.get("level_value") or 0
+
+    meets = resume_years >= job_years if job_exp.get("level_value") else True
+
+    return {
+        "job_experience": job_exp,
+        "resume_experience": resume_exp,
+        "meets_requirement": meets,
+        "meets_message": "Resume meets experience requirement" if meets else ("Resume experience is below requirement" if job_exp.get("level_value") else "No experience requirement found"),
+    }

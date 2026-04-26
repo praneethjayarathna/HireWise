@@ -296,6 +296,50 @@
           </div>
         </div>
       </section>
+
+      <!-- Experience Analysis -->
+      <section v-if="experienceAnalysis" class="experience-section">
+        <h2 class="experience-title">Work Experience</h2>
+
+        <div class="experience-cards">
+          <div class="experience-card">
+            <h3 class="experience-card-title">
+              <span class="exp-icon">📋</span>
+              Job Requirement
+            </h3>
+            <div v-if="experienceAnalysis.job_experience?.level" class="exp-details">
+              <div class="exp-years-badge" :class="getExpClass(experienceAnalysis.job_experience.level_value)">
+                {{ experienceAnalysis.job_experience.level }}
+              </div>
+              <p v-if="experienceAnalysis.job_experience.context" class="exp-context">
+                "{{ experienceAnalysis.job_experience.context }}"
+              </p>
+            </div>
+            <p v-else class="exp-empty">No specific experience requirement</p>
+          </div>
+
+          <div class="experience-card">
+            <h3 class="experience-card-title">
+              <span class="exp-icon">💼</span>
+              Resume Experience
+            </h3>
+            <div v-if="experienceAnalysis.resume_experience?.level" class="exp-details">
+              <div class="exp-years-badge" :class="getExpClass(experienceAnalysis.resume_experience.level_value)">
+                {{ experienceAnalysis.resume_experience.level }}
+              </div>
+              <p v-if="experienceAnalysis.resume_experience.context" class="exp-context">
+                "{{ experienceAnalysis.resume_experience.context }}"
+              </p>
+            </div>
+            <p v-else class="exp-empty">No experience found in resume</p>
+          </div>
+        </div>
+
+        <div class="exp-message" :class="experienceAnalysis.meets_requirement ? 'success' : 'warning'">
+          <span class="exp-msg-icon">{{ experienceAnalysis.meets_requirement ? '✓' : '!' }}</span>
+          <span>{{ experienceAnalysis.meets_message }}</span>
+        </div>
+      </section>
     </main>
   </div>
 </template>
@@ -317,6 +361,7 @@ const jdText = ref('')
 const jobDescriptionResult = ref(null)
 const skillAnalysis = ref(null)
 const educationAnalysis = ref(null)
+const experienceAnalysis = ref(null)
 const similarityScores = ref(null)
 const loading = ref(false)
 const jdLoading = ref(false)
@@ -454,11 +499,13 @@ async function analyze() {
   similarityScores.value = null
   skillAnalysis.value = null
   educationAnalysis.value = null
+  experienceAnalysis.value = null
   try {
     const { data } = await analyzeResume(resumeFile.value, jobDescriptionResult.value)
     similarityScores.value = data.similarity_scores
     skillAnalysis.value = data.skill_analysis
     educationAnalysis.value = data.education_analysis
+    experienceAnalysis.value = data.experience_analysis
   } catch (e) {
     error.value = e.response?.data?.detail || 'Analysis failed. Please try again.'
   } finally {
@@ -478,6 +525,17 @@ function getLevelClass(levelValue) {
   if (levelValue >= 3) return 'bachelor'
   if (levelValue >= 2) return 'associate'
   return 'certificate'
+}
+
+function getExpClass(levelValue) {
+  if (!levelValue) return ''
+  if (levelValue >= 7) return 'expert'
+  if (levelValue >= 6) return 'principal'
+  if (levelValue >= 5) return 'lead'
+  if (levelValue >= 4) return 'senior'
+  if (levelValue >= 3) return 'mid'
+  if (levelValue >= 2) return 'junior'
+  return 'entry'
 }
 </script>
 
@@ -1307,5 +1365,152 @@ h1 {
   font-weight: 600;
   background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
   color: #065f46;
+}
+
+.experience-section {
+  margin-top: 2.5rem;
+}
+
+.experience-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1e1b4b;
+  margin: 0 0 1rem;
+}
+
+.experience-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+@media (max-width: 640px) {
+  .experience-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+.experience-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.experience-card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 1rem;
+  color: #1f2937;
+}
+
+.exp-icon {
+  font-size: 1.25rem;
+}
+
+.exp-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.exp-years-badge {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  width: fit-content;
+  color: #fff;
+}
+
+.exp-years-badge.expert {
+  background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%);
+}
+
+.exp-years-badge.principal {
+  background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
+}
+
+.exp-years-badge.lead {
+  background: linear-gradient(135deg, #ea580c 0%, #f97316 100%);
+}
+
+.exp-years-badge.senior {
+  background: linear-gradient(135deg, #ca8a04 0%, #eab308 100%);
+}
+
+.exp-years-badge.mid {
+  background: linear-gradient(135deg, #16a34a 0%, #22c55e 100%);
+}
+
+.exp-years-badge.junior {
+  background: linear-gradient(135deg, #0891b2 0%, #06b6d4 100%);
+}
+
+.exp-years-badge.entry {
+  background: linear-gradient(135deg, #6b7280 0%, #9ca3af 100%);
+}
+
+.exp-context {
+  font-size: 0.85rem;
+  color: #6b7280;
+  font-style: italic;
+  margin: 0;
+  padding: 0.5rem;
+  background: #f9fafb;
+  border-radius: 6px;
+}
+
+.exp-empty {
+  color: #9ca3af;
+  font-size: 0.9rem;
+  margin: 0;
+  font-style: italic;
+}
+
+.exp-message {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.exp-message.success {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.exp-message.warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.exp-msg-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.exp-message.success .exp-msg-icon {
+  background: #10b981;
+  color: #fff;
+}
+
+.exp-message.warning .exp-msg-icon {
+  background: #f59e0b;
+  color: #fff;
 }
 </style>
