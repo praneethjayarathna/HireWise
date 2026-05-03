@@ -110,7 +110,7 @@
       </button>
 
       <!-- Similarity Results -->
-      <section v-if="similarityScores" class="scores-section">
+      <!-- <section v-if="similarityScores" class="scores-section">
         <div class="overall-score">
           <div class="score-circle" :class="overallScoreClass">
             <span class="score-value">{{ (similarityScores.overall * 100).toFixed(0) }}</span>
@@ -138,7 +138,7 @@
             </div>
           </div>
         </div>
-      </section>
+      </section> -->
 
       <!-- Skill Analysis -->
       <section v-if="skillAnalysis" class="skills-section">
