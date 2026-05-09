@@ -10,23 +10,23 @@
 
     <main class="content">
       <h1>Dashboard</h1>
-      <p class="subtitle">What would you like to do today?</p>
+      <p class="subtitle">Welcome to HireWise!</p>
 
       <div class="cards">
-        <RouterLink to="/jobs/analyze" class="feature-card">
+        <!-- <RouterLink to="/jobs/analyze" class="feature-card">
           <span class="feature-icon">📄</span>
           <div>
             <h3>Job Description Analyzer</h3>
             <p>Upload a PDF or DOCX and extract overview, responsibilities, qualifications and skills.</p>
           </div>
           <span class="arrow">→</span>
-        </RouterLink>
+        </RouterLink> -->
 
         <RouterLink to="/resume/matcher" class="feature-card">
           <span class="feature-icon">📊</span>
           <div>
             <h3>Resume Matcher</h3>
-            <p>Upload your resume and compare it against a job description to see how well you fit.</p>
+            <p>Upload your resume and compare it against a job description.</p>
           </div>
           <span class="arrow">→</span>
         </RouterLink>
