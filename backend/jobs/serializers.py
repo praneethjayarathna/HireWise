@@ -100,6 +100,12 @@ class ExperienceAnalysisSerializer(serializers.Serializer):
     meets_message = serializers.CharField()
 
 
+class OverviewMatchSerializer(serializers.Serializer):
+    job_sentence = serializers.CharField()
+    resume_sentence = serializers.CharField()
+    similarity = serializers.FloatField()
+
+
 class DutyMatchSerializer(serializers.Serializer):
     job_duty = serializers.CharField()
     experience_duty = serializers.CharField()

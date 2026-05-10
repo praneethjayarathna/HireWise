@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import re
 import threading
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -88,6 +88,29 @@ def _get_model():
                 from sentence_transformers import SentenceTransformer
                 _model = SentenceTransformer("all-mpnet-base-v2")
     return _model
+
+
+_HEADER_PATTERN = re.compile(
+    r"\b(overview|summary|about us|about the (role|company|team|position|job)|"
+    r"who we are|introduction|profile|objective|professional summary|"
+    r"career summary|job description|position description|role description|"
+    r" qualifications|requirements?)\b", re.I
+)
+
+
+def _looks_like_header(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped or len(stripped) > 80:
+        return False
+    ends_colon = stripped.endswith(":")
+    is_allcaps = stripped.isupper() and len(stripped) > 2
+    is_short = len(stripped) <= 60
+    if ends_colon or is_allcaps:
+        if _HEADER_PATTERN.search(stripped):
+            return True
+    if is_short and _HEADER_PATTERN.fullmatch(stripped.strip(":").strip()):
+        return True
+    return False
 
 
 def _is_header(line: str) -> Optional[int]:
@@ -275,3 +298,57 @@ def compute_similarity(
     scores["overall"] = overall
 
     return scores
+
+
+def _filter_headers(sentences: List[str]) -> List[str]:
+    """Remove header-like lines from a list of sentences."""
+    return [s for s in sentences if not _looks_like_header(s)]
+
+
+def compare_overviews(
+    jd_sentences: List[str],
+    resume_sentences: List[str],
+    threshold: float = 0.30,
+) -> List[Dict[str, Any]]:
+    """
+    Compare overview sentences from JD and resume using SBERT.
+
+    Header-like lines are automatically filtered out before comparison.
+
+    For each JD overview sentence, finds the best matching resume overview
+    sentence via pairwise cosine similarity. Returns all pairs sorted by
+    similarity descending (only pairs above *threshold*).
+
+    Returns
+    -------
+    list of dicts with keys: job_sentence, resume_sentence, similarity
+    """
+    jd_sentences = _filter_headers(jd_sentences)
+    resume_sentences = _filter_headers(resume_sentences)
+
+    if not jd_sentences or not resume_sentences:
+        return []
+
+    model = _get_model()
+
+    jd_embeddings = model.encode(jd_sentences, convert_to_numpy=True, show_progress_bar=False)
+    resume_embeddings = model.encode(resume_sentences, convert_to_numpy=True, show_progress_bar=False)
+
+    jd_norm = jd_embeddings / (np.linalg.norm(jd_embeddings, axis=1, keepdims=True) + 1e-10)
+    resume_norm = resume_embeddings / (np.linalg.norm(resume_embeddings, axis=1, keepdims=True) + 1e-10)
+
+    sim_matrix = jd_norm @ resume_norm.T
+
+    matches: List[Dict[str, Any]] = []
+    for i, jd_sent in enumerate(jd_sentences):
+        best_idx = int(np.argmax(sim_matrix[i]))
+        best_score = float(sim_matrix[i][best_idx])
+        if best_score >= threshold:
+            matches.append({
+                "job_sentence": jd_sent,
+                "resume_sentence": resume_sentences[best_idx],
+                "similarity": round(best_score, 4),
+            })
+
+    matches.sort(key=lambda x: x["similarity"], reverse=True)
+    return matches

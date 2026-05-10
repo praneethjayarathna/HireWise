@@ -5,7 +5,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .parsers import extract_text
-from .categorizer import categorize, compute_similarity
+from .categorizer import categorize, compute_similarity, compare_overviews
 from .skills_extractor import compare_skills, compare_education, compare_experience, compare_responsibilities
 from .skills_extractor import compare_skills, compare_education, compare_experience, compare_responsibilities
 from .serializers import (
@@ -18,6 +18,7 @@ from .serializers import (
     EducationAnalysisSerializer,
     ExperienceAnalysisSerializer,
     ResponsibilityAnalysisSerializer,
+    OverviewMatchSerializer,
 )
 
 
@@ -108,6 +109,11 @@ class ResumeAnalyzeView(APIView):
         categorized_resume = categorize(resume_text)
         scores = compute_similarity(job_description, categorized_resume)
 
+        # Sentence-level overview comparison
+        jd_overview = job_description.get("overview", [])
+        resume_overview = categorized_resume.get("overview", [])
+        overview_matches = compare_overviews(jd_overview, resume_overview)
+
         job_text = "\n".join(
             sentence for sentences in job_description.values() for sentence in sentences
         )
@@ -121,6 +127,9 @@ class ResumeAnalyzeView(APIView):
 
         score_serializer = SimilarityScoreSerializer(data=scores)
         score_serializer.is_valid(raise_exception=True)
+
+        overview_serializer = OverviewMatchSerializer(data=overview_matches, many=True)
+        overview_serializer.is_valid(raise_exception=True)
 
         skill_serializer = SkillAnalysisSerializer(data=skill_analysis)
         skill_serializer.is_valid(raise_exception=True)
@@ -138,6 +147,7 @@ class ResumeAnalyzeView(APIView):
             {
                 "categorized_resume": resume_serializer.validated_data,
                 "similarity_scores": score_serializer.validated_data,
+                "overview_matches": overview_serializer.validated_data,
                 "skill_analysis": skill_serializer.validated_data,
                 "education_analysis": edu_serializer.validated_data,
                 "experience_analysis": exp_serializer.validated_data,

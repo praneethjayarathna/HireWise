@@ -109,8 +109,8 @@
         {{ loading ? 'Analyzing...' : 'Compare Resume to Job' }}
       </button>
 
-      <!-- Similarity Results -->
-      <!-- <section v-if="similarityScores" class="scores-section">
+      <!-- Similarity Scores -->
+      <section v-if="similarityScores" class="scores-section">
         <div class="overall-score">
           <div class="score-circle" :class="overallScoreClass">
             <span class="score-value">{{ (similarityScores.overall * 100).toFixed(0) }}</span>
@@ -138,7 +138,60 @@
             </div>
           </div>
         </div>
-      </section> -->
+      </section>
+
+      <!-- Overview Comparison -->
+      <section v-if="overviewMatches !== null" class="overview-section">
+        <h2 class="overview-title">Overview Comparison</h2>
+        <p class="overview-hint">
+          Semantic matches between job description overview and resume summary
+        </p>
+
+        <div class="overview-stats">
+          <div class="stat-badge">
+            <span class="stat-value">{{ overviewMatches.length }}</span>
+            <span class="stat-label">Matched Pairs</span>
+          </div>
+          <div class="stat-badge highlight">
+            <span class="stat-value">{{ overviewMatches.length ? overviewAvgScore : '0' }}%</span>
+            <span class="stat-label">Avg Similarity</span>
+          </div>
+        </div>
+
+        <div v-if="overviewMatches.length" class="overview-list">
+          <div
+            v-for="(match, idx) in overviewMatches"
+            :key="idx"
+            class="overview-item"
+            :class="getMatchClass(match.similarity)"
+          >
+            <div class="overview-pair">
+              <div class="overview-side job">
+                <span class="overview-label">Job Description</span>
+                <p class="overview-text">{{ match.job_sentence }}</p>
+              </div>
+              <div class="overview-connector">
+                <span class="overview-arrow">↔</span>
+                <span class="overview-score">{{ (match.similarity * 100).toFixed(0) }}%</span>
+              </div>
+              <div class="overview-side resume">
+                <span class="overview-label">Resume Summary</span>
+                <p class="overview-text">{{ match.resume_sentence }}</p>
+              </div>
+            </div>
+            <div class="overview-bar-track">
+              <div
+                class="overview-bar-fill"
+                :style="{ width: `${match.similarity * 100}%`, backgroundColor: getMatchColor(match.similarity) }"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div v-else class="overview-empty">
+          No semantically matching overview sentences found — 0% match
+        </div>
+      </section>
 
       <!-- Skill Analysis -->
       <section v-if="skillAnalysis" class="skills-section">
@@ -399,6 +452,7 @@ const educationAnalysis = ref(null)
 const experienceAnalysis = ref(null)
 const responsibilityAnalysis = ref(null)
 const similarityScores = ref(null)
+const overviewMatches = ref(null)
 const loading = ref(false)
 const jdLoading = ref(false)
 const error = ref('')
@@ -440,6 +494,12 @@ const overallScoreClass = computed(() => {
   if (score >= 0.7) return 'high'
   if (score >= 0.4) return 'medium'
   return 'low'
+})
+
+const overviewAvgScore = computed(() => {
+  if (!overviewMatches.value?.length) return 0
+  const sum = overviewMatches.value.reduce((acc, m) => acc + m.similarity, 0)
+  return ((sum / overviewMatches.value.length) * 100).toFixed(0)
 })
 
 const overallScoreMessage = computed(() => {
@@ -511,7 +571,8 @@ function clearJd() {
 function clearResume() {
   resumeFile.value = null
   similarityScores.value = null
-  error.value = ''
+  overviewMatches.value = null
+  skillAnalysis.value = null
   if (resumeFileInput.value) resumeFileInput.value.value = ''
 }
 
@@ -533,6 +594,7 @@ async function analyze() {
   loading.value = true
   error.value = ''
   similarityScores.value = null
+  overviewMatches.value = null
   skillAnalysis.value = null
   educationAnalysis.value = null
   experienceAnalysis.value = null
@@ -540,6 +602,7 @@ async function analyze() {
   try {
     const { data } = await analyzeResume(resumeFile.value, jobDescriptionResult.value)
     similarityScores.value = data.similarity_scores
+    overviewMatches.value = data.overview_matches
     skillAnalysis.value = data.skill_analysis
     educationAnalysis.value = data.education_analysis
     experienceAnalysis.value = data.experience_analysis
@@ -581,6 +644,18 @@ function getRespScoreClass(score) {
   if (score >= 80) return 'high'
   if (score >= 50) return 'medium'
   return 'low'
+}
+
+function getMatchClass(similarity) {
+  if (similarity >= 0.7) return 'high'
+  if (similarity >= 0.4) return 'medium'
+  return 'low'
+}
+
+function getMatchColor(similarity) {
+  if (similarity >= 0.7) return '#10b981'
+  if (similarity >= 0.4) return '#f59e0b'
+  return '#ef4444'
 }
 </script>
 
@@ -967,6 +1042,150 @@ h1 {
   height: 100%;
   border-radius: 4px;
   transition: width 0.5s ease-out;
+}
+
+.overview-section {
+  margin-top: 2.5rem;
+}
+
+.overview-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1e1b4b;
+  margin: 0 0 0.25rem;
+}
+
+.overview-hint {
+  color: #9ca3af;
+  font-size: 0.85rem;
+  margin: 0 0 1rem;
+}
+
+.overview-stats {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.overview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.overview-item {
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  border-left: 4px solid #e5e7eb;
+}
+
+.overview-item.high {
+  border-left-color: #10b981;
+}
+
+.overview-item.medium {
+  border-left-color: #f59e0b;
+}
+
+.overview-item.low {
+  border-left-color: #ef4444;
+}
+
+.overview-pair {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.overview-side {
+  flex: 1;
+  min-width: 0;
+}
+
+.overview-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #9ca3af;
+  display: block;
+  margin-bottom: 0.35rem;
+}
+
+.overview-side.job .overview-label {
+  color: #7c3aed;
+}
+
+.overview-side.resume .overview-label {
+  color: #059669;
+}
+
+.overview-text {
+  margin: 0;
+  font-size: 0.875rem;
+  color: #374151;
+  line-height: 1.55;
+}
+
+.overview-connector {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding-top: 1.25rem;
+  flex-shrink: 0;
+}
+
+.overview-arrow {
+  color: #9ca3af;
+  font-size: 1.1rem;
+}
+
+.overview-score {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #6b7280;
+  white-space: nowrap;
+}
+
+.overview-bar-track {
+  height: 4px;
+  background: #e5e7eb;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.overview-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.5s ease-out;
+}
+
+@media (max-width: 640px) {
+  .overview-pair {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .overview-connector {
+    flex-direction: row;
+    padding-top: 0;
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+.overview-empty {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: #9ca3af;
+  font-size: 0.95rem;
+  font-style: italic;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .skills-section {
