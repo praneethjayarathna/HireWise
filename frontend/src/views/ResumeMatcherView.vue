@@ -428,6 +428,120 @@
           </div>
         </div>
       </section>
+
+      <!-- Certification Analysis -->
+      <section v-if="certificationAnalysis" class="certification-section">
+        <h2 class="cert-section-title">Certifications</h2>
+        <p class="cert-section-summary">{{ certificationAnalysis.summary }}</p>
+
+        <div v-if="certificationAnalysis.certification_skills_map?.length" class="cert-card-list">
+          <div v-for="(certMap, idx) in certificationAnalysis.certification_skills_map" :key="idx" class="cert-card">
+            <div class="cert-header">
+              <span class="cert-badge">🏆</span>
+              <span class="cert-name">{{ certMap.certification }}</span>
+              <span v-if="certMap.has_relevance" class="cert-relevance-badge">Related to job</span>
+              <span v-else class="cert-irrelevant-badge">Not in job requirements</span>
+            </div>
+            <p class="cert-context">{{ certMap.context }}</p>
+            <div v-if="certMap.related_skills?.length" class="cert-skills-section">
+              <div class="cert-skills-header">
+                <span class="cert-skills-title">Related job skills</span>
+                <span class="cert-match-rate">{{ certMap.related_skills_count }} skill(s)</span>
+              </div>
+              <div class="cert-skills-list">
+                <span
+                  v-for="(skill, sIdx) in certMap.related_skills.slice(0, 10)"
+                  :key="sIdx"
+                  class="cert-skill-item"
+                >
+                  {{ skill.skill }}
+                </span>
+              </div>
+              <p v-if="certMap.related_skills.length > 10" class="cert-skills-more">
+                + {{ certMap.related_skills.length - 10 }} more
+              </p>
+            </div>
+            <div v-else class="cert-no-skills">
+              <span class="cert-no-skills-text">No skills from this certification match job requirements</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="match-score-bar">
+          <div class="match-score-header">
+            <span class="match-score-label">Overall Relevance</span>
+            <span class="match-score-value" :class="getCertScoreClass(certificationAnalysis.overall_match_score)">
+              {{ certificationAnalysis.overall_match_score }}%
+            </span>
+          </div>
+          <div class="match-bar-track">
+            <div
+              class="match-bar-fill"
+              :style="{ width: certificationAnalysis.overall_match_score + '%', backgroundColor: getCertBarColor(certificationAnalysis.overall_match_score) }"
+            />
+          </div>
+          <p class="match-bar-subtitle">
+            {{ certificationAnalysis.relevant_certifications }} of {{ certificationAnalysis.total_certifications }} certifications relate to job skills
+          </p>
+        </div>
+      </section>
+
+      <!-- Project Analysis -->
+      <section v-if="projectAnalysis" class="project-section">
+        <h2 class="cert-section-title">Projects</h2>
+        <p class="cert-section-summary">{{ projectAnalysis.summary }}</p>
+
+        <div v-if="projectAnalysis.projects_skills_map?.length" class="cert-card-list">
+          <div v-for="(projMap, idx) in projectAnalysis.projects_skills_map" :key="idx" class="cert-card project-card">
+            <div class="cert-header">
+              <span class="cert-badge">📁</span>
+              <span class="cert-name">{{ projMap.project_title }}</span>
+              <span v-if="projMap.has_relevance" class="cert-relevance-badge">Related to job</span>
+              <span v-else class="cert-irrelevant-badge">Not in job requirements</span>
+            </div>
+            <p class="cert-context">{{ projMap.description }}</p>
+            <div v-if="projMap.related_skills?.length" class="cert-skills-section">
+              <div class="cert-skills-header">
+                <span class="cert-skills-title">Related job skills</span>
+                <span class="cert-match-rate">{{ projMap.related_skills_count }} skill(s)</span>
+              </div>
+              <div class="cert-skills-list">
+                <span
+                  v-for="(skill, sIdx) in projMap.related_skills.slice(0, 10)"
+                  :key="sIdx"
+                  class="skill-tag matching"
+                >
+                  {{ skill }}
+                </span>
+              </div>
+              <p v-if="projMap.related_skills.length > 10" class="cert-skills-more">
+                + {{ projMap.related_skills.length - 10 }} more
+              </p>
+            </div>
+            <div v-else class="cert-no-skills">
+              <span class="cert-no-skills-text">No skills from this project match job requirements</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="match-score-bar">
+          <div class="match-score-header">
+            <span class="match-score-label">Overall Relevance</span>
+            <span class="match-score-value" :class="getCertScoreClass(projectAnalysis.overall_match_score)">
+              {{ projectAnalysis.overall_match_score }}%
+            </span>
+          </div>
+          <div class="match-bar-track">
+            <div
+              class="match-bar-fill"
+              :style="{ width: projectAnalysis.overall_match_score + '%', backgroundColor: getCertBarColor(projectAnalysis.overall_match_score) }"
+            />
+          </div>
+          <p class="match-bar-subtitle">
+            {{ projectAnalysis.relevant_projects }} of {{ projectAnalysis.total_projects }} projects relate to job skills
+          </p>
+        </div>
+      </section>
     </main>
   </div>
 </template>
@@ -451,6 +565,8 @@ const skillAnalysis = ref(null)
 const educationAnalysis = ref(null)
 const experienceAnalysis = ref(null)
 const responsibilityAnalysis = ref(null)
+const certificationAnalysis = ref(null)
+const projectAnalysis = ref(null)
 const similarityScores = ref(null)
 const overviewMatches = ref(null)
 const loading = ref(false)
@@ -598,6 +714,8 @@ async function analyze() {
   educationAnalysis.value = null
   experienceAnalysis.value = null
   responsibilityAnalysis.value = null
+  certificationAnalysis.value = null
+  projectAnalysis.value = null
   try {
     const { data } = await analyzeResume(resumeFile.value, jobDescriptionResult.value)
     similarityScores.value = data.similarity_scores
@@ -606,6 +724,8 @@ async function analyze() {
     educationAnalysis.value = data.education_analysis
     experienceAnalysis.value = data.experience_analysis
     responsibilityAnalysis.value = data.responsibility_analysis
+    certificationAnalysis.value = data.certification_analysis
+    projectAnalysis.value = data.project_analysis
   } catch (e) {
     error.value = e.response?.data?.detail || 'Analysis failed. Please try again.'
   } finally {
@@ -667,6 +787,19 @@ function getMatchClass(similarity) {
 function getMatchColor(similarity) {
   if (similarity >= 0.7) return '#10b981'
   if (similarity >= 0.4) return '#f59e0b'
+  return '#ef4444'
+}
+
+function getCertScoreClass(score) {
+  if (!score) return ''
+  if (score >= 80) return 'high'
+  if (score >= 50) return 'medium'
+  return 'low'
+}
+
+function getCertBarColor(score) {
+  if (score >= 80) return '#10b981'
+  if (score >= 50) return '#f59e0b'
   return '#ef4444'
 }
 </script>
@@ -1926,5 +2059,211 @@ h1 {
   border-radius: 16px;
   font-size: 0.85rem;
   font-weight: 500;
+}
+
+/* Certification & Project Sections */
+.certification-section,
+.project-section {
+  margin-top: 2.5rem;
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.cert-section-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1e1b4b;
+  margin: 0 0 0.5rem;
+}
+
+.cert-section-summary {
+  font-size: 0.95rem;
+  color: #6b7280;
+  margin: 0 0 1.25rem;
+  padding: 0.75rem;
+  background: #f9fafb;
+  border-radius: 8px;
+  border-left: 3px solid #8b5cf6;
+}
+
+.cert-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.cert-card {
+  padding: 0.75rem 1rem;
+  background: #f9fafb;
+  border-radius: 10px;
+  border-left: 4px solid #8b5cf6;
+}
+
+.project-card {
+  border-left-color: #0ea5e9;
+}
+
+.cert-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.cert-badge {
+  font-size: 1.1rem;
+}
+
+.cert-name {
+  flex: 1;
+  font-weight: 600;
+  color: #1f2937;
+  font-size: 0.95rem;
+}
+
+.cert-relevance-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  background: #d1fae5;
+  color: #065f46;
+  border-radius: 12px;
+}
+
+.cert-irrelevant-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  background: #fee2e2;
+  color: #991b1b;
+  border-radius: 12px;
+}
+
+.cert-context {
+  font-size: 0.85rem;
+  color: #6b7280;
+  font-style: italic;
+  margin: 0 0 0.75rem;
+  padding: 0.5rem;
+  background: #f3f4f6;
+  border-radius: 6px;
+}
+
+.cert-skills-section {
+  margin-top: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.cert-skills-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.cert-skills-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #4f46e5;
+}
+
+.cert-match-rate {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #6b7280;
+}
+
+.cert-skills-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.cert-skill-item {
+  padding: 0.3rem 0.7rem;
+  background: #eef2ff;
+  color: #4338ca;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.cert-skills-more {
+  font-size: 0.8rem;
+  color: #9ca3af;
+  margin: 0.5rem 0 0;
+  font-style: italic;
+}
+
+.cert-no-skills {
+  margin-top: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.cert-no-skills-text {
+  font-size: 0.8rem;
+  color: #9ca3af;
+  font-style: italic;
+}
+
+.match-score-bar {
+  margin-top: 1.25rem;
+  padding: 1rem;
+  background: #fff;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+}
+
+.match-score-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.match-score-label {
+  font-weight: 600;
+  color: #1f2937;
+  font-size: 1rem;
+}
+
+.match-score-value {
+  font-size: 1.25rem;
+  font-weight: 800;
+  padding: 0.25rem 0.75rem;
+  border-radius: 8px;
+}
+
+.match-score-value.high {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.match-score-value.medium {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.match-score-value.low {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.match-bar-track {
+  height: 10px;
+  background: #e5e7eb;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.match-bar-fill {
+  height: 100%;
+  border-radius: 5px;
+  transition: width 0.6s ease-out;
 }
 </style>

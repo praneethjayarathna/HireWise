@@ -1279,3 +1279,720 @@ def compare_responsibilities(job_text: str, resume_text: str) -> Dict[str, any]:
         "score": comparison["score"],
         "explanation": comparison["explanation"],
     }
+
+
+# ---------------------------------------------------------------------------
+# Certification patterns & extraction
+# ---------------------------------------------------------------------------
+
+_cert_embeddings: Optional[np.ndarray] = None
+_cert_labels: Optional[List[str]] = None
+_cert_variants: Optional[Dict[str, List[str]]] = None
+
+CERTIFICATION_PATTERNS: Dict[str, List[str]] = {
+    "AWS Certified Solutions Architect": [
+        "aws certified solutions architect", "aws solutions architect", "aws architect certification",
+        "aws certified architect", "amazon solutions architect",
+    ],
+    "AWS Certified Developer": [
+        "aws certified developer", "aws developer certification", "aws developer associate",
+    ],
+    "AWS Certified SysOps Administrator": [
+        "aws certified sysops", "aws sysops administrator", "aws sysops certification",
+    ],
+    "AWS Certified DevOps Engineer": [
+        "aws certified devops engineer", "aws devops engineer", "aws devops certification",
+    ],
+    "AWS Certified Machine Learning": [
+        "aws certified machine learning", "aws ml certification", "aws machine learning specialty",
+    ],
+    "Google Cloud Professional Architect": [
+        "google cloud professional architect", "gcp professional architect", "google cloud architect",
+        "gcp architect certification",
+    ],
+    "Google Cloud Professional Data Engineer": [
+        "google cloud data engineer", "gcp data engineer", "google cloud professional data engineer",
+    ],
+    "Google Cloud Associate Cloud Engineer": [
+        "google cloud associate engineer", "gcp associate cloud engineer", "google associate cloud engineer",
+    ],
+    "Microsoft Azure Fundamentals": [
+        "azure fundamentals", "az-900", "microsoft azure fundamentals",
+    ],
+    "Microsoft Azure Administrator": [
+        "azure administrator", "az-104", "microsoft azure administrator",
+    ],
+    "Microsoft Azure Solutions Architect": [
+        "azure solutions architect", "az-305", "microsoft azure architect",
+    ],
+    "PMP": [
+        "pmp", "project management professional", "pmp certification", "pmp certified",
+    ],
+    "Certified ScrumMaster": [
+        "certified scrummaster", "csm", "scrummaster certification", "certified scrum master",
+    ],
+    "CISSP": [
+        "cissp", "certified information systems security professional", "cissp certification",
+    ],
+    "CompTIA Security+": [
+        "comptia security+", "security+", "comptia security plus", "security plus certification",
+    ],
+    "CompTIA Network+": [
+        "comptia network+", "network+", "comptia network plus",
+    ],
+    "Cisco CCNA": [
+        "ccna", "cisco ccna", "ccna certification", "cisco certified network associate",
+    ],
+    "Cisco CCNP": [
+        "ccnp", "cisco ccnp", "ccnp certification", "cisco certified network professional",
+    ],
+    "Certified Kubernetes Administrator": [
+        "certified kubernetes administrator", "cka", "kubernetes administrator certification",
+    ],
+    "Certified Kubernetes Application Developer": [
+        "certified kubernetes application developer", "ckad", "kubernetes application developer",
+    ],
+    "Terraform Associate": [
+        "terraform associate", "hashicorp terraform", "terraform certification",
+    ],
+    "ITIL Foundation": [
+        "itil foundation", "itil v4", "itil certification",
+    ],
+    "Six Sigma Green Belt": [
+        "six sigma green belt", "lean six sigma green belt",
+    ],
+    "Six Sigma Black Belt": [
+        "six sigma black belt", "lean six sigma black belt",
+    ],
+    "Oracle Certified Professional": [
+        "oracle certified professional", "ocp", "oracle certification",
+    ],
+    "Salesforce Certified Administrator": [
+        "salesforce administrator", "salesforce certified administrator", "salesforce admin certification",
+    ],
+    "Tableau Certified Data Analyst": [
+        "tableau certified data analyst", "tableau certification", "tableau certified",
+    ],
+    "Google Analytics Certification": [
+        "google analytics certification", "gaiq", "google analytics individual qualification",
+    ],
+}
+
+CERTIFICATION_ANCHORS = [
+    "certifications", "certificates", "credentials", "professional certifications",
+    "technical certifications", "certified", "certification in", "certification:",
+    "professional certificate", "qualifications", "licenses", "accreditations",
+]
+
+
+def _build_certification_database():
+    global _cert_embeddings, _cert_labels, _cert_variants
+    if _cert_embeddings is not None:
+        return
+    model = _get_model()
+    cert_labels = []
+    cert_variants_map = {}
+    for cert_name, variants in CERTIFICATION_PATTERNS.items():
+        for variant in variants:
+            cert_labels.append(variant.lower().strip())
+            if cert_name not in cert_variants_map:
+                cert_variants_map[cert_name] = []
+            cert_variants_map[cert_name].append(variant.lower().strip())
+    _cert_labels = cert_labels
+    _cert_variants = cert_variants_map
+    _cert_embeddings = model.encode(cert_labels, convert_to_numpy=True, show_progress_bar=False)
+
+
+def extract_certifications(text: str) -> List[Dict[str, any]]:
+    _build_certification_database()
+    model = _get_model()
+
+    text_clean = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [l.strip() for l in text_clean.split("\n") if l.strip()]
+
+    cert_section_keywords = [
+        "certifications", "certificates", "credentials", "certification",
+        "professional certifications", "technical certifications",
+        "certification:", "certifications:",
+    ]
+
+    section_header_words = {
+        "certifications", "certificates", "credentials", "certification",
+        "professional", "technical", "licenses", "accreditations",
+    }
+
+    cert_section_lines = []
+    in_cert_section = False
+    cert_section_started = False
+    trigger_line_skipped = False
+
+    for line in lines:
+        line_lower = line.lower()
+        if not cert_section_started:
+            for kw in cert_section_keywords:
+                if kw in line_lower and len(line) < 50:
+                    in_cert_section = True
+                    cert_section_started = True
+                    trigger_line_skipped = True
+                    break
+            if not in_cert_section:
+                continue
+        if in_cert_section:
+            is_new = False
+            for oh in ["education", "experience", "skills", "projects", "work experience",
+                        "employment", "summary", "objective", "references", "volunteer",
+                        "publications", "awards"]:
+                if oh in line_lower and len(line) < 50:
+                    is_new = True
+                    break
+            if is_new:
+                break
+            if trigger_line_skipped:
+                trigger_line_skipped = False
+                continue
+            cert_section_lines.append(line)
+
+    target_text = "\n".join(cert_section_lines) if cert_section_lines else text_clean
+    target_lines = [l.strip() for l in target_text.split("\n") if l.strip()]
+
+    candidate_entries = []
+    for line in target_lines:
+        line_clean = re.sub(r'^[\s•\-*–—]+', '', line).strip()
+        if not line_clean or len(line_clean) < 3:
+            continue
+        words = set(w.strip().lower() for w in re.split(r'[\s,;:]+', line_clean) if w.strip())
+        if words and words.issubset(section_header_words):
+            continue
+        if ',' in line_clean:
+            parts = [p.strip() for p in line_clean.split(',') if len(p.strip()) > 3]
+            for p in parts:
+                p_words = set(w.strip().lower() for w in re.split(r'[\s,;:]+', p) if w.strip())
+                if p_words and not p_words.issubset(section_header_words):
+                    candidate_entries.append(p)
+        else:
+            candidate_entries.append(line_clean)
+
+    candidate_entries = list(dict.fromkeys(candidate_entries))
+
+    if not candidate_entries:
+        return []
+
+    entry_embeddings = model.encode(candidate_entries, convert_to_numpy=True, show_progress_bar=False)
+    c_norm = _cert_embeddings / (np.linalg.norm(_cert_embeddings, axis=1, keepdims=True) + 1e-10)
+    e_norm = entry_embeddings / (np.linalg.norm(entry_embeddings, axis=1, keepdims=True) + 1e-10)
+    sim_matrix = c_norm @ e_norm.T
+
+    found = []
+    seen = set()
+
+    for i, entry in enumerate(candidate_entries):
+        entry_lower = entry.lower()
+
+        exact_match = None
+        for cert_name, variants in _cert_variants.items():
+            if cert_name in seen:
+                continue
+            for variant in variants:
+                if variant in entry_lower or entry_lower in variant:
+                    exact_match = cert_name
+                    break
+            if exact_match:
+                break
+
+        if exact_match:
+            seen.add(exact_match)
+            found.append({
+                "certification": exact_match,
+                "matched_variant": entry,
+                "context": entry,
+                "confidence": 1.0,
+            })
+            continue
+
+        max_sim = float(sim_matrix[:, i].max()) if sim_matrix.ndim > 1 else float(sim_matrix[i].max())
+        if max_sim < 0.50:
+            continue
+
+        best_idx = int(np.argmax(sim_matrix[:, i])) if sim_matrix.ndim > 1 else int(np.argmax(sim_matrix[i]))
+        best_name = next((cn for cn, vs in _cert_variants.items() if _cert_labels[best_idx] in vs), None)
+
+        if best_name and best_name not in seen:
+            seen.add(best_name)
+            found.append({
+                "certification": best_name,
+                "matched_variant": entry,
+                "context": entry,
+                "confidence": round(max_sim, 3),
+            })
+
+    return found
+
+
+# ---------------------------------------------------------------------------
+# Projects extraction
+# ---------------------------------------------------------------------------
+
+PROJECT_SECTION_KEYWORDS = [
+    "projects", "project experience", "key projects", "academic projects",
+    "personal projects", "professional projects", "major projects",
+    "project work", "software projects", "development projects",
+]
+
+PROJECT_ACTION_VERBS = [
+    "developed", "designed", "built", "created", "implemented", "architected",
+    "engineered", "constructed", "established", "launched", "delivered",
+    "led", "managed", "spearheaded", "drove", "coordinated",
+    "migrated", "integrated", "automated", "configured", "deployed",
+    "optimized", "refactored", "redesigned", "restructured", "modernized",
+]
+
+
+def extract_projects(text: str) -> List[Dict[str, any]]:
+    model = _get_model()
+
+    text_clean = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [l.strip() for l in text_clean.split("\n") if l.strip()]
+
+    project_section_header_words = {
+        "projects", "project", "key", "academic", "personal", "professional",
+        "major", "software", "development", "experience", "work",
+    }
+
+    trigger_line_skipped = False
+    raw_project_lines = []
+    in_project_section = False
+    project_started = False
+
+    for line in lines:
+        line_lower = line.lower()
+        if not project_started:
+            for kw in PROJECT_SECTION_KEYWORDS:
+                if kw in line_lower and len(line) < 50:
+                    in_project_section = True
+                    project_started = True
+                    trigger_line_skipped = True
+                    break
+            if not in_project_section:
+                continue
+        if in_project_section:
+            if trigger_line_skipped:
+                trigger_line_skipped = False
+                continue
+
+            is_new = False
+
+            known_section_headers = [
+                "education", "experience", "skills", "certifications",
+                "employment", "summary", "objective", "references",
+                "work experience", "publications", "awards",
+                "languages", "language", "additional",
+                "interests", "hobbies", "leadership", "volunteer",
+                "honors", "achievements", "affiliations", "memberships",
+                "training", "courses", "patents", "activities",
+                "extracurricular", "community",
+            ]
+            for oh in known_section_headers:
+                if oh in line_lower and len(line) < 50:
+                    is_new = True
+                    break
+
+            if not is_new and len(line) < 50 and line[0].isupper() and not line.startswith(('•', '-', '*', '–', '—')):
+                first_word = line_lower.split()[0].rstrip(':;,.') if line_lower.split() else ''
+                not_action = first_word not in {'developed', 'built', 'created', 'designed', 'implemented', 'architected', 'engineered', 'led', 'managed'}
+                not_tech = not any(line_lower.startswith(kw + ':') for kw in ['stack', 'tech', 'tool', 'language', 'framework'])
+                has_section_word = any(sw in line_lower for sw in ['and', 'additional', 'language', 'interest', 'hobby', 'activity', 'volunteer', 'award', 'honor', 'achievement', 'member', 'affiliation', 'training', 'course', 'patent'])
+                is_single_section_word = (
+                    len(line_lower.split()) == 1
+                    and line_lower.rstrip('.') in {'education', 'experience', 'skills', 'certifications',
+                                                    'publications', 'awards', 'languages', 'interests', 'hobbies',
+                                                    'leadership', 'volunteer', 'activities', 'references', 'summary',
+                                                    'objective', 'training', 'courses', 'patents', 'memberships',
+                                                    'affiliations', 'achievements', 'honors'}
+                )
+                if not_action and not_tech and (has_section_word or is_single_section_word):
+                    is_new = True
+
+            if is_new:
+                break
+            words = set(w.strip().lower() for w in re.split(r'[\s,;:]+', line) if w.strip())
+            if words and words.issubset(project_section_header_words):
+                continue
+            raw_project_lines.append(line)
+
+    if not raw_project_lines:
+        return []
+
+    project_blocks = []
+    current_title = None
+    current_bullets = []
+
+    description_verbs = {
+        "developed", "designed", "built", "created", "implemented", "architected",
+        "engineered", "launched", "delivered", "led", "managed", "spearheaded",
+        "migrated", "integrated", "automated", "configured", "deployed",
+        "optimized", "refactored", "built", "wrote", "coded", "programmed",
+    }
+
+    def is_bullet_line(l):
+        return bool(re.match(r'^[\s•\-*–—>]+', l))
+
+    def is_action_line(l):
+        first_word = l.lower().split()[0].rstrip(',;:') if l.split() else ''
+        return first_word in description_verbs or first_word.endswith('ed')
+
+    def is_tech_line(l):
+        lower = l.lower()
+        return any(lower.startswith(kw) and ':' in lower for kw in ["stack", "tech", "technologies", "tools", "language", "framework", "database", "library", "api", "sdk", "platform", "environment"])
+
+    common_start_words = {
+        "the", "a", "an", "some", "this", "that", "these", "those",
+        "our", "my", "their", "his", "her", "its",
+        "for", "with", "using", "through", "via",
+        "built", "developed", "designed", "created", "implemented",
+    }
+
+    def is_title_line(l, prev_line, has_existing_projects):
+        if is_bullet_line(l):
+            return False
+        if is_action_line(l):
+            return False
+        if is_tech_line(l):
+            return False
+        if l.lower().startswith(('built a', 'developed a', 'created a', 'designed a', 'implemented a')):
+            return False
+        if len(l) > 100:
+            return False
+        if prev_line is not None and is_bullet_line(prev_line):
+            return False
+
+        if has_existing_projects:
+            first_word = l.split()[0].lower().rstrip(':;,.') if l.split() else ''
+            has_separator = bool(re.search(r'[—\-–|:]\s', l))
+            has_proper_case = l[0].isupper() and not first_word in common_start_words
+            is_short = len(l) <= 60
+            return has_separator or (is_short and has_proper_case)
+
+        return True
+
+    prev = None
+    for line in raw_project_lines:
+        line_clean = re.sub(r'^[\s•\-*–—>]+', '', line).strip()
+        if not line_clean:
+            prev = line
+            continue
+
+        has_existing = current_title is not None
+        if is_title_line(line, prev, has_existing):
+            if current_title is not None:
+                desc = " ".join(current_bullets) if current_bullets else current_title
+                project_blocks.append({
+                    "title": current_title,
+                    "description": desc,
+                })
+            current_title = line_clean
+            current_bullets = []
+        else:
+            current_bullets.append(line_clean)
+
+        prev = line
+
+    if current_title is not None:
+        desc = " ".join(current_bullets) if current_bullets else current_title
+        project_blocks.append({
+            "title": current_title,
+            "description": desc,
+        })
+
+    verb_embeddings = model.encode(PROJECT_ACTION_VERBS, convert_to_numpy=True, show_progress_bar=False)
+
+    projects = []
+    seen_titles = set()
+
+    for block in project_blocks:
+        title_lower = block["title"].lower().strip()[:60]
+        if title_lower in seen_titles:
+            continue
+        seen_titles.add(title_lower)
+
+        line_emb = model.encode([block["description"]], convert_to_numpy=True, show_progress_bar=False)
+        v_norm = verb_embeddings / (np.linalg.norm(verb_embeddings, axis=1, keepdims=True) + 1e-10)
+        l_norm = line_emb / (np.linalg.norm(line_emb, axis=1, keepdims=True) + 1e-10)
+        verb_sims = v_norm @ l_norm.T
+        max_sim = float(verb_sims.max())
+
+        projects.append({
+            "project_title": block["title"],
+            "description": block["description"],
+            "confidence": round(max_sim, 3),
+        })
+
+    return projects
+
+
+# ---------------------------------------------------------------------------
+# Semantic comparison with evidence sentences
+# ---------------------------------------------------------------------------
+
+def _semantic_compare_with_evidence(
+    resume_items: List[Dict[str, any]],
+    job_sentences: List[str],
+    item_name_key: str,
+    item_desc_key: str,
+    threshold: float = 0.40,
+) -> Dict[str, any]:
+    """
+    Compare resume items (certifications/projects) against job description sentences.
+    Returns matched evidence with similarity scores and a final match score.
+    """
+    if not resume_items or not job_sentences:
+        return {
+            "matched_evidence": [],
+            "unmatched_items": [item[item_name_key] for item in resume_items] if resume_items else [],
+            "match_score": 0,
+            "total_items": len(resume_items) if resume_items else 0,
+            "matched_count": 0,
+        }
+
+    model = _get_model()
+
+    resume_texts = [item[item_desc_key] for item in resume_items]
+    resume_embeddings = model.encode(resume_texts, convert_to_numpy=True, show_progress_bar=False)
+    job_embeddings = model.encode(job_sentences, convert_to_numpy=True, show_progress_bar=False)
+
+    r_norm = resume_embeddings / (np.linalg.norm(resume_embeddings, axis=1, keepdims=True) + 1e-10)
+    j_norm = job_embeddings / (np.linalg.norm(job_embeddings, axis=1, keepdims=True) + 1e-10)
+    sim_matrix = r_norm @ j_norm.T
+
+    matched_evidence = []
+    unmatched_items = []
+    matched_indices = set()
+
+    for i, item in enumerate(resume_items):
+        best_j = -1
+        best_sim = 0.0
+        for j in range(len(job_sentences)):
+            sim = float(sim_matrix[i, j])
+            if sim > best_sim:
+                best_sim = sim
+                best_j = j
+
+        if best_j >= 0 and best_sim >= threshold:
+            matched_evidence.append({
+                "resume_item": item[item_desc_key],
+                "resume_item_name": item[item_name_key],
+                "matching_job_sentence": job_sentences[best_j],
+                "similarity_score": round(best_sim, 3),
+            })
+            matched_indices.add(i)
+        else:
+            unmatched_items.append(item[item_name_key])
+
+    matched_count = len(matched_evidence)
+    total = len(resume_items)
+    match_score = round(matched_count / total * 100, 1) if total else 0
+
+    return {
+        "matched_evidence": matched_evidence,
+        "unmatched_items": unmatched_items,
+        "match_score": match_score,
+        "total_items": total,
+        "matched_count": matched_count,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Certification comparison with job description
+# ---------------------------------------------------------------------------
+
+def compare_certifications_with_job(resume_text: str, job_text: str) -> Dict[str, any]:
+    resume_certs = extract_certifications(resume_text)
+    if not resume_certs:
+        return {
+            "certifications": [],
+            "certification_skills_map": [],
+            "overall_match_score": 0,
+            "total_certifications": 0,
+            "summary": "No certifications found in the resume.",
+        }
+
+    job_skills_data = extract_skills_with_scores(job_text)
+    job_all_skill_names = []
+    for category, skills in job_skills_data.items():
+        for skill_name in skills:
+            job_all_skill_names.append(skill_name)
+
+    if not job_all_skill_names:
+        return {
+            "certifications": [
+                {
+                    "certification": c["certification"],
+                    "confidence": c["confidence"],
+                    "context": c["context"],
+                }
+                for c in resume_certs
+            ],
+            "certification_skills_map": [],
+            "overall_match_score": 100,
+            "total_certifications": len(resume_certs),
+            "summary": f"Found {len(resume_certs)} certification(s) in resume. No specific skills extracted from job description.",
+        }
+
+    model = _get_model()
+    cert_names = [c["certification"] for c in resume_certs]
+    cert_embeddings = model.encode(cert_names, convert_to_numpy=True, show_progress_bar=False)
+    skill_embeddings = model.encode(job_all_skill_names, convert_to_numpy=True, show_progress_bar=False)
+
+    c_norm = cert_embeddings / (np.linalg.norm(cert_embeddings, axis=1, keepdims=True) + 1e-10)
+    s_norm = skill_embeddings / (np.linalg.norm(skill_embeddings, axis=1, keepdims=True) + 1e-10)
+    sim_matrix = c_norm @ s_norm.T
+
+    certification_skills_map = []
+    all_related_skills = set()
+    total_skills_count = len(job_all_skill_names)
+
+    for i, cert in enumerate(resume_certs):
+        skill_matches = []
+        for j, skill_name in enumerate(job_all_skill_names):
+            sim = float(sim_matrix[i, j])
+            if sim >= 0.30:
+                skill_matches.append({
+                    "skill": skill_name,
+                    "similarity_score": round(sim, 3),
+                })
+                all_related_skills.add(skill_name)
+
+        skill_matches.sort(key=lambda x: x["similarity_score"], reverse=True)
+
+        cert_skills_count = len(skill_matches)
+        cert_match_rate = round(cert_skills_count / total_skills_count * 100, 1) if total_skills_count else 0
+
+        cert_entry = {
+            "certification": cert["certification"],
+            "confidence": cert["confidence"],
+            "context": cert["context"],
+            "related_skills": skill_matches,
+            "related_skills_count": cert_skills_count,
+            "match_rate": cert_match_rate,
+            "has_relevance": len(skill_matches) > 0,
+        }
+        certification_skills_map.append(cert_entry)
+
+    high_relevance = sum(1 for c in certification_skills_map if c["has_relevance"])
+    overall_match_score = round(high_relevance / len(resume_certs) * 100, 1) if resume_certs else 0
+
+    return {
+        "certifications": [
+            {
+                "certification": c["certification"],
+                "confidence": c["confidence"],
+                "context": c["context"],
+            }
+            for c in resume_certs
+        ],
+        "certification_skills_map": certification_skills_map,
+        "overall_match_score": overall_match_score,
+        "total_certifications": len(resume_certs),
+        "relevant_certifications": high_relevance,
+        "summary": (
+            f"Found {len(resume_certs)} certification(s) in resume. "
+            f"{high_relevance} certification(s) relate to skills sought by the job "
+            f"({overall_match_score}% overall relevance)."
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Projects comparison with job description
+# ---------------------------------------------------------------------------
+
+def compare_projects_with_job(resume_text: str, job_text: str) -> Dict[str, any]:
+    resume_projects = extract_projects(resume_text)
+    if not resume_projects:
+        return {
+            "projects": [],
+            "projects_skills_map": [],
+            "overall_match_score": 0,
+            "total_projects": 0,
+            "summary": "No projects found in the resume.",
+        }
+
+    job_skills_data = extract_skills_with_scores(job_text)
+    job_all_skill_names = []
+    for category, skills in job_skills_data.items():
+        for skill_name in skills:
+            job_all_skill_names.append(skill_name)
+
+    if not job_all_skill_names:
+        return {
+            "projects": [
+                {
+                    "project_title": p["project_title"],
+                    "confidence": p["confidence"],
+                    "description": p["description"],
+                }
+                for p in resume_projects
+            ],
+            "projects_skills_map": [],
+            "overall_match_score": 100,
+            "total_projects": len(resume_projects),
+            "summary": f"Found {len(resume_projects)} project(s) in resume. No specific skills extracted from job description.",
+        }
+
+    model = _get_model()
+    project_desc = [p["description"] for p in resume_projects]
+    project_embeddings = model.encode(project_desc, convert_to_numpy=True, show_progress_bar=False)
+    skill_embeddings = model.encode(job_all_skill_names, convert_to_numpy=True, show_progress_bar=False)
+
+    p_norm = project_embeddings / (np.linalg.norm(project_embeddings, axis=1, keepdims=True) + 1e-10)
+    s_norm = skill_embeddings / (np.linalg.norm(skill_embeddings, axis=1, keepdims=True) + 1e-10)
+    sim_matrix = p_norm @ s_norm.T
+
+    projects_skills_map = []
+    all_related_skills = set()
+    total_skills_count = len(job_all_skill_names)
+
+    for i, proj in enumerate(resume_projects):
+        skill_matches = []
+        for j, skill_name in enumerate(job_all_skill_names):
+            sim = float(sim_matrix[i, j])
+            if sim >= 0.25:
+                skill_matches.append({
+                    "skill": skill_name,
+                    "similarity_score": round(sim, 3),
+                })
+                all_related_skills.add(skill_name)
+
+        skill_matches.sort(key=lambda x: x["similarity_score"], reverse=True)
+
+        proj_entry = {
+            "project_title": proj["project_title"],
+            "confidence": proj["confidence"],
+            "description": proj["description"],
+            "related_skills": [s["skill"] for s in skill_matches],
+            "related_skills_count": len(skill_matches),
+            "has_relevance": len(skill_matches) > 0,
+        }
+        projects_skills_map.append(proj_entry)
+
+    high_relevance = sum(1 for p in projects_skills_map if p["has_relevance"])
+    overall_match_score = round(high_relevance / len(resume_projects) * 100, 1) if resume_projects else 0
+
+    return {
+        "projects": [
+            {
+                "project_title": p["project_title"],
+                "confidence": p["confidence"],
+                "description": p["description"],
+            }
+            for p in resume_projects
+        ],
+        "projects_skills_map": projects_skills_map,
+        "overall_match_score": overall_match_score,
+        "total_projects": len(resume_projects),
+        "relevant_projects": high_relevance,
+        "summary": (
+            f"Found {len(resume_projects)} project(s) in resume. "
+            f"{high_relevance} project(s) relate to skills sought by the job "
+            f"({overall_match_score}% overall relevance)."
+        ),
+    }

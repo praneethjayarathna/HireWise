@@ -7,7 +7,7 @@ from rest_framework.views import APIView
 from .parsers import extract_text
 from .categorizer import categorize, compute_similarity, compare_overviews
 from .skills_extractor import compare_skills, compare_education, compare_experience, compare_responsibilities
-from .skills_extractor import compare_skills, compare_education, compare_experience, compare_responsibilities
+from .skills_extractor import compare_certifications_with_job, compare_projects_with_job
 from .serializers import (
     JobDescriptionUploadSerializer,
     CategorizedJobDescriptionSerializer,
@@ -121,6 +121,8 @@ class ResumeAnalyzeView(APIView):
         education_analysis = compare_education(job_text, resume_text)
         experience_analysis = compare_experience(job_text, resume_text)
         responsibility_analysis = compare_responsibilities(job_text, resume_text)
+        certification_analysis = compare_certifications_with_job(resume_text, job_text)
+        project_analysis = compare_projects_with_job(resume_text, job_text)
 
         resume_serializer = CategorizedResumeSerializer(data=categorized_resume)
         resume_serializer.is_valid(raise_exception=True)
@@ -152,6 +154,8 @@ class ResumeAnalyzeView(APIView):
                 "education_analysis": edu_serializer.validated_data,
                 "experience_analysis": exp_serializer.validated_data,
                 "responsibility_analysis": resp_serializer.validated_data,
+                "certification_analysis": certification_analysis,
+                "project_analysis": project_analysis,
             },
             status=status.HTTP_200_OK,
         )
