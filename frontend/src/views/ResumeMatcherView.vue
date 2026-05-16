@@ -111,13 +111,13 @@
 
       <!-- Similarity Scores -->
       <section v-if="similarityScores" class="scores-section">
-        <div class="overall-score">
+        <!-- <div class="overall-score">
           <div class="score-circle" :class="overallScoreClass">
             <span class="score-value">{{ (similarityScores.overall * 100).toFixed(0) }}</span>
             <span class="score-label">Overall Match</span>
           </div>
           <p class="score-message">{{ overallScoreMessage }}</p>
-        </div>
+        </div> -->
 
         <div class="category-scores">
           <div
@@ -128,12 +128,12 @@
             <div class="score-bar-header">
               <span class="cat-icon">{{ cat.icon }}</span>
               <span class="cat-label">{{ cat.label }}</span>
-              <span class="cat-score">{{ (similarityScores[cat.key] * 100).toFixed(0) }}%</span>
+              <span class="cat-score">{{ (getCategoryScore(cat.key) * 100).toFixed(0) }}%</span>
             </div>
             <div class="score-bar-track">
               <div
                 class="score-bar-fill"
-                :style="{ width: `${similarityScores[cat.key] * 100}%`, backgroundColor: cat.color }"
+                :style="{ width: `${getCategoryScore(cat.key) * 100}%`, backgroundColor: cat.color }"
               />
             </div>
           </div>
@@ -461,9 +461,8 @@ const resumeDragging = ref(false)
 
 const categories = [
   { key: 'overview', label: 'Overview', icon: '🏢', color: '#6366f1' },
-  { key: 'responsibilities', label: 'Responsibilities', icon: '📋', color: '#0ea5e9' },
-  { key: 'qualifications', label: 'Qualifications', icon: '🎓', color: '#10b981' },
   { key: 'skills', label: 'Skills', icon: '⚡', color: '#f59e0b' },
+  { key: 'responsibilities', label: 'Responsibilities', icon: '📋', color: '#0ea5e9' },
 ]
 
 const jdFileIcon = computed(() => {
@@ -637,6 +636,19 @@ function getExpClass(levelValue) {
   if (levelValue >= 3) return 'mid'
   if (levelValue >= 2) return 'junior'
   return 'entry'
+}
+
+function getCategoryScore(key) {
+  if (key === 'overview' && overviewMatches.value?.length) {
+    return parseFloat(overviewAvgScore.value) / 100
+  }
+  if (key === 'skills' && skillAnalysis.value) {
+    return skillAnalysis.value.match_rate / 100
+  }
+  if (key === 'responsibilities' && responsibilityAnalysis.value) {
+    return responsibilityAnalysis.value.score / 100
+  }
+  return 0
 }
 
 function getRespScoreClass(score) {
