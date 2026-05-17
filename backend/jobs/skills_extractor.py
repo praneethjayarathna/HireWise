@@ -190,6 +190,8 @@ def _get_model():
     if _model is None:
         with _lock:
             if _model is None:
+                from dotenv import load_dotenv
+                load_dotenv()
                 from sentence_transformers import SentenceTransformer
                 _model = SentenceTransformer("all-mpnet-base-v2")
     return _model
@@ -1376,7 +1378,119 @@ CERTIFICATION_PATTERNS: Dict[str, List[str]] = {
     "Google Analytics Certification": [
         "google analytics certification", "gaiq", "google analytics individual qualification",
     ],
+    "PowerBI Data Analyst": [
+        "powerbi data analyst", "pl-300", "microsoft power bi certification", "power bi certified",
+    ],
+    "MongoDB University": [
+        "mongodb university", "mongodb certification course", "m101js", "m001", "m103",
+        "mongodb developer course", "mongodb for node.js developers",
+    ],
+    "Certified Embedded Systems Developer": [
+        "certified embedded systems developer", "cesd",
+        "embedded systems developer certification", "embedded systems developer",
+    ],
+    "FreeRTOS Certification": [
+        "freertos fundamentals", "freertos certification", "freertos course",
+        "freertos self-paced",
+    ],
+    "Rust Programming Certification": [
+        "rust programming certification", "rust certification", "rust developer certification", "rust embedded",
+        "rust working group", "rust language certification",
+    ],
+    "edX Certificate": [
+        "edx course", "edx certificate", "edx certification", "edx self-paced",
+        "edx verified certificate",
+    ],
+    "Coursera Certificate": [
+        "coursera course", "coursera certificate", "coursera specialization",
+        "coursera professional certificate",
+    ],
+    "Udemy Certificate": [
+        "udemy course", "udemy certificate", "udemy certification",
+    ],
+    "Pluralsight Skill IQ": [
+        "pluralsight course", "pluralsight skill iq", "pluralsight certification",
+        "pluralsight certificate",
+    ],
+    "LinkedIn Learning Certificate": [
+        "linkedin learning course", "linkedin learning certificate",
+    ],
+    "Embedded Linux Certification": [
+        "embedded linux certification", "embedded linux course",
+        "embedded linux developer certification",
+    ],
+    "ARM Certification": [
+        "arm certification", "arm embedded certification", "arm microcontroller certification",
+        "arm architecture certification",
+    ],
+    "Microcontroller Programming": [
+        "microcontroller programming certification", "microcontroller certification", "mcu programming certification",
+        "microcontroller course",
+    ],
+    "Real-Time Operating Systems": [
+        "rtos certification", "real-time operating systems certification",
+        "real time operating system course",
+    ],
+    "Embedded C Programming": [
+        "embedded c certification", "embedded c programming certification",
+    ],
+    "Computer Architecture Certification": [
+        "computer architecture course", "computer architecture certification",
+    ],
+    "FPGA Design Certification": [
+        "fpga design certification", "fpga design course", "fpga certification",
+    ],
+    "IoT Certification": [
+        "internet of things certification", "iot certification", "iot course",
+        "internet of things course",
+    ],
+    "VHDL Certification": [
+        "vhdl certification", "vhdl course", "vhdl programming certification",
+    ],
+    "Verilog Certification": [
+        "verilog certification", "verilog course", "verilog programming certification",
+    ],
+    "DSP Certification": [
+        "digital signal processing certification", "dsp certification", "dsp course",
+    ],
+    "PCB Design Certification": [
+        "pcb design certification", "pcb design course",
+    ],
+    "CAD Certification": [
+        "cad certification", "autocad certification", "solidworks certification",
+        "cad course",
+    ],
+    "MATLAB Certification": [
+        "matlab certification", "matlab course", "matlab programming certification",
+    ],
+    "LabVIEW Certification": [
+        "labview certification", "labview course", "labview programming certification",
+    ],
+    "ROS Certification": [
+        "ros certification", "robot operating system certification", "ros course",
+    ],
+    "QNX Certification": [
+        "qnx certification", "qnx course", "qnx neutrino certification",
+    ],
+    "Zephyr RTOS Certification": [
+        "zephyr rtos certification", "zephyr certification", "zephyr course",
+    ],
+    "NVIDIA CUDA Certification": [
+        "nvidia cuda certification", "cuda programming certification", "cuda certification", "cuda course",
+    ],
+    "OpenCL Certification": [
+        "opencl certification", "opencl programming certification", "opencl course",
+    ],
 }
+
+# CERT_TRIGGER_KEYWORDS = {
+#     "certified", "certification", "certificate", "credentials",
+#     "license", "licensure", "accreditation", "qualification",
+#     "pmp", "itil",
+#     "ceh", "cissp", "cism", "crisc",
+#     "toefl", "ielts",
+#     "six sigma",
+# }
 
 CERTIFICATION_ANCHORS = [
     "certifications", "certificates", "credentials", "professional certifications",

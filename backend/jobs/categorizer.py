@@ -85,6 +85,8 @@ def _get_model():
     if _model is None:
         with _lock:
             if _model is None:
+                from dotenv import load_dotenv
+                load_dotenv()
                 from sentence_transformers import SentenceTransformer
                 _model = SentenceTransformer("all-mpnet-base-v2")
     return _model

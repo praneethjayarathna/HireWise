@@ -1,6 +1,12 @@
 from pathlib import Path
 from decouple import config
 from datetime import timedelta
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+HF_TOKEN = os.environ.get("HF_TOKEN")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
