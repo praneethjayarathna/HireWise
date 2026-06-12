@@ -95,8 +95,10 @@ def _get_model():
 _HEADER_PATTERN = re.compile(
     r"\b(overview|summary|about us|about the (role|company|team|position|job)|"
     r"who we are|introduction|profile|objective|professional summary|"
-    r"career summary|job description|position description|role description|"
-    r" qualifications|requirements?)\b", re.I
+    r"career summary|career objective|job description|position description|role description|"
+    r"qualifications|requirements?|skills|technologies|education|experience|"
+    r"responsibilities|duties|certifications|projects|publications|awards|"
+    r"languages|additional information|references)\b", re.I
 )
 
 
@@ -249,6 +251,61 @@ def categorize(text: str) -> Dict[str, List[str]]:
     return result
 
 
+def _greedy_matches(
+    jd_embeddings: np.ndarray,
+    resume_embeddings: np.ndarray,
+    threshold: float = 0.0,
+) -> Tuple[List[Tuple[int, int, float]], float, float]:
+    """
+    Greedy one-to-one matching between JD and resume embeddings.
+
+    For each JD embedding (in order of best match descending), finds the
+    best available resume embedding. Returns the matched pairs, the average
+    similarity of matched pairs (simpleAvg), and the match rate relative
+    to the average document length.
+
+    Returns
+    -------
+    (matches, simpleAvg, coverageWeighted)
+        matches: list of (jd_idx, resume_idx, similarity)
+        simpleAvg: mean similarity of matched pairs
+        coverageWeighted: simpleAvg × (matchedPairs / avgDocLength)
+    """
+    jd_norm = jd_embeddings / (np.linalg.norm(jd_embeddings, axis=1, keepdims=True) + 1e-10)
+    resume_norm = resume_embeddings / (np.linalg.norm(resume_embeddings, axis=1, keepdims=True) + 1e-10)
+    sim_matrix = jd_norm @ resume_norm.T
+
+    n_jd = len(jd_embeddings)
+    n_res = len(resume_embeddings)
+
+    available = list(range(n_res))
+    pairs: List[Tuple[int, int, float]] = []
+
+    jd_best = [
+        float(sim_matrix[i, available].max()) if available else 0.0
+        for i in range(n_jd)
+    ]
+    jd_order = sorted(range(n_jd), key=lambda i: jd_best[i], reverse=True)
+
+    for i in jd_order:
+        if not available:
+            break
+        sub = sim_matrix[i, available]
+        pos = int(np.argmax(sub))
+        score = float(sub[pos])
+        if score >= threshold:
+            idx = available.pop(pos)
+            pairs.append((i, idx, score))
+
+    n_matched = len(pairs)
+    simple_avg = float(np.mean([p[2] for p in pairs])) if pairs else 0.0
+    avg_len = (n_jd + n_res) / 2.0
+    coverage = n_matched / avg_len if avg_len > 0 else 0.0
+    coverage_weighted = simple_avg * coverage
+
+    return pairs, simple_avg, coverage_weighted
+
+
 def compute_similarity(
     job_description: Dict[str, List[str]],
     resume: Dict[str, List[str]],
@@ -256,10 +313,8 @@ def compute_similarity(
     """
     Compute similarity scores between categorized job description and resume.
 
-    For each category:
-    - Encode all sentences from both job description and resume
-    - Compute pairwise cosine similarity
-    - Use maximum similarity per resume sentence, then average
+    For overview: uses coverage-weighted formula — simpleAvg × (matched / avgDocLength).
+    For other categories: uses max-mean (best match per resume sentence, then average).
 
     Returns dict with per-category scores and 'overall' (weighted average).
     """
@@ -284,17 +339,23 @@ def compute_similarity(
         job_embeddings = model.encode(job_sentences, convert_to_numpy=True, show_progress_bar=False)
         resume_embeddings = model.encode(resume_sentences, convert_to_numpy=True, show_progress_bar=False)
 
-        sim_matrix = np.stack(
-            [_cosine_similarity(resume_embeddings, job_embeddings[i]) for i in range(len(job_sentences))],
-            axis=1,
-        )
+        if cat == "overview":
+            _, simple_avg, coverage_weighted = _greedy_matches(
+                job_embeddings, resume_embeddings, threshold=0.0,
+            )
+            scores[cat] = round(coverage_weighted, 4)
+        else:
+            sim_matrix = np.stack(
+                [_cosine_similarity(resume_embeddings, job_embeddings[i]) for i in range(len(job_sentences))],
+                axis=1,
+            )
 
-        if sim_matrix.size == 0:
-            scores[cat] = 0.0
-            continue
+            if sim_matrix.size == 0:
+                scores[cat] = 0.0
+                continue
 
-        max_sims = sim_matrix.max(axis=1)
-        scores[cat] = float(np.mean(max_sims))
+            max_sims = sim_matrix.max(axis=1)
+            scores[cat] = float(np.mean(max_sims))
 
     overall = sum(scores[cat] * category_weights[cat] for cat in CATEGORIES)
     scores["overall"] = overall
@@ -310,23 +371,28 @@ def _filter_headers(sentences: List[str]) -> List[str]:
 def compare_overviews(
     jd_sentences: List[str],
     resume_sentences: List[str],
-    threshold: float = 0.30,
+    threshold: float = 0.40,
 ) -> List[Dict[str, Any]]:
     """
     Compare overview sentences from JD and resume using SBERT.
 
     Header-like lines are automatically filtered out before comparison.
+    Very short lines (< 15 chars) are also removed as noise.
 
-    For each JD overview sentence, finds the best matching resume overview
-    sentence via pairwise cosine similarity. Returns all pairs sorted by
-    similarity descending (only pairs above *threshold*).
+    Uses greedy one-to-one matching: each resume sentence can match at
+    most one JD sentence, preventing a single resume sentence from being
+    paired with multiple JD sentences. This gives more accurate pairings.
 
     Returns
     -------
     list of dicts with keys: job_sentence, resume_sentence, similarity
+    sorted descending by similarity (only pairs above *threshold*).
     """
     jd_sentences = _filter_headers(jd_sentences)
     resume_sentences = _filter_headers(resume_sentences)
+
+    jd_sentences = [s for s in jd_sentences if len(s) >= 15]
+    resume_sentences = [s for s in resume_sentences if len(s) >= 15]
 
     if not jd_sentences or not resume_sentences:
         return []
@@ -336,21 +402,13 @@ def compare_overviews(
     jd_embeddings = model.encode(jd_sentences, convert_to_numpy=True, show_progress_bar=False)
     resume_embeddings = model.encode(resume_sentences, convert_to_numpy=True, show_progress_bar=False)
 
-    jd_norm = jd_embeddings / (np.linalg.norm(jd_embeddings, axis=1, keepdims=True) + 1e-10)
-    resume_norm = resume_embeddings / (np.linalg.norm(resume_embeddings, axis=1, keepdims=True) + 1e-10)
+    pairs, _, _ = _greedy_matches(jd_embeddings, resume_embeddings, threshold=threshold)
 
-    sim_matrix = jd_norm @ resume_norm.T
-
-    matches: List[Dict[str, Any]] = []
-    for i, jd_sent in enumerate(jd_sentences):
-        best_idx = int(np.argmax(sim_matrix[i]))
-        best_score = float(sim_matrix[i][best_idx])
-        if best_score >= threshold:
-            matches.append({
-                "job_sentence": jd_sent,
-                "resume_sentence": resume_sentences[best_idx],
-                "similarity": round(best_score, 4),
-            })
-
-    matches.sort(key=lambda x: x["similarity"], reverse=True)
-    return matches
+    return [
+        {
+            "job_sentence": jd_sentences[j],
+            "resume_sentence": resume_sentences[r],
+            "similarity": round(s, 4),
+        }
+        for j, r, s in pairs
+    ]
