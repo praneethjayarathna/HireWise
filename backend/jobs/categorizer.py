@@ -7,7 +7,8 @@ Strategy
    headers to provide context boosts.
 2. Encode every sentence with SBERT (all-mpnet-base-v2 – higher accuracy).
 3. Encode multiple diverse anchor phrases per category and use their mean
-   embedding as the category vector.
+   embedding as the category vector.  Anchor embeddings are cached globally
+   so they are computed only once per process.
 4. Assign each sentence to the category with the highest cosine similarity,
    applying a small boost when the sentence falls under a matching header.
 5. Apply a confidence threshold – sentences below it are dropped.
@@ -15,7 +16,16 @@ Strategy
    both exceed the threshold, add the sentence to both categories.
 7. Return a dict with four lists of sentences.
 
-The model is loaded once (lazy singleton) so it is not re-loaded per request.
+Similarity scoring (compute_similarity)
+----------------------------------------
+For the *overview* category we use a coverage-weighted formula so that a
+sparse but highly similar resume does not outscore a comprehensive one.
+
+For all other categories we use a *JD-perspective* max-mean:
+  For each JD sentence find the best-matching resume sentence, then average
+  those per-JD scores.  This directly measures how many JD requirements are
+  covered by the resume, rather than how well the resume's own sentences
+  happen to match something in the JD.
 """
 
 from __future__ import annotations
@@ -26,46 +36,45 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-_model = None
-_lock = threading.Lock()
+from .model_loader import get_model as _get_model
 
 CONFIDENCE_THRESHOLD = 0.25
 MULTI_LABEL_MARGIN = 0.05
 CONTEXT_BOOST = 0.15
 
-# Multiple diverse anchor phrases per category for richer semantic coverage.
+# IT-domain anchor phrases per category for richer semantic coverage.
 CATEGORY_ANCHORS: Dict[str, List[str]] = {
     "overview": [
-        "company overview and introduction",
-        "about us and who we are",
-        "job summary and position description",
-        "about the role and what we do",
-        "our mission and company culture",
-        "introduction to the team and organisation",
+        "company overview and introduction to the engineering team",
+        "about us and what our software product does",
+        "job summary for software engineer or developer position",
+        "about the role on our technology or platform team",
+        "our mission and engineering culture",
+        "introduction to the team and the systems we build",
     ],
     "responsibilities": [
-        "key responsibilities and job duties",
-        "what you will do day to day",
-        "role expectations and accountabilities",
-        "tasks and deliverables you will own",
-        "your day-to-day activities and projects",
-        "core functions and primary duties of the role",
+        "key responsibilities: design, develop, and deploy software systems",
+        "what you will do: write code, build features, and review pull requests",
+        "role expectations: implement backend services and APIs",
+        "tasks: develop, test, and maintain scalable applications",
+        "your day-to-day: coding, debugging, and collaborating with engineers",
+        "core engineering duties: architect solutions and deliver software",
     ],
     "qualifications": [
-        "required qualifications and education requirements",
-        "minimum years of experience needed",
-        "degree or certification required",
-        "preferred qualifications and background",
-        "academic credentials and professional experience",
-        "eligibility criteria and mandatory requirements",
+        "required qualifications: degree in computer science or software engineering",
+        "minimum years of software development or engineering experience",
+        "bachelor's or master's degree in a technical field required",
+        "preferred qualifications: prior experience in cloud or distributed systems",
+        "academic credentials and professional software development background",
+        "eligibility: strong programming foundation and problem-solving ability",
     ],
     "skills": [
-        "technical skills and programming languages",
-        "tools and technologies you should know",
-        "soft skills and interpersonal competencies",
-        "proficiency in frameworks and platforms",
-        "knowledge of and ability to use specific software",
-        "core competencies and areas of expertise",
+        "technical skills: programming languages, frameworks, and databases",
+        "tools and technologies: cloud platforms, DevOps, and CI/CD pipelines",
+        "proficiency in backend or frontend frameworks and REST APIs",
+        "knowledge of software development tools and version control",
+        "core technical competencies: algorithms, data structures, system design",
+        "expertise in software engineering practices and agile methodologies",
     ],
 }
 
@@ -79,17 +88,20 @@ _HEADER_KEYWORDS: List[Tuple[re.Pattern, int]] = [
     (re.compile(r"\b(skills?|technologies|tools|competencies|expertise)\b", re.I), 3),
 ]
 
+# ---------------------------------------------------------------------------
+# Cached anchor embeddings — computed once per process
+# ---------------------------------------------------------------------------
+_anchor_embeddings: Optional[np.ndarray] = None
+_anchor_lock = threading.Lock()
 
-def _get_model():
-    global _model
-    if _model is None:
-        with _lock:
-            if _model is None:
-                from dotenv import load_dotenv
-                load_dotenv()
-                from sentence_transformers import SentenceTransformer
-                _model = SentenceTransformer("all-mpnet-base-v2")
-    return _model
+
+def _get_anchor_embeddings(model) -> np.ndarray:
+    global _anchor_embeddings
+    if _anchor_embeddings is None:
+        with _anchor_lock:
+            if _anchor_embeddings is None:
+                _anchor_embeddings = _build_anchor_embeddings(model)
+    return _anchor_embeddings
 
 
 _HEADER_PATTERN = re.compile(
@@ -121,9 +133,6 @@ def _is_header(line: str) -> Optional[int]:
     """
     Return the category index if *line* looks like a section header,
     otherwise return None.
-
-    A header is: short (<= 60 chars), ends with ':', is ALL-CAPS, or
-    matches one of the known header keyword patterns.
     """
     stripped = line.strip()
     if not stripped:
@@ -138,7 +147,6 @@ def _is_header(line: str) -> Optional[int]:
             if pattern.search(stripped):
                 return cat_idx
 
-    # Keyword match regardless of formatting
     for pattern, cat_idx in _HEADER_KEYWORDS:
         if pattern.search(stripped) and is_short:
             return cat_idx
@@ -163,7 +171,6 @@ def _split_sentences(text: str) -> List[Tuple[str, Optional[int]]]:
         header_cat = _is_header(line)
         if header_cat is not None:
             current_context = header_cat
-            # Don't emit the header line itself as a sentence to classify
             continue
 
         parts = re.split(r"(?<=[.!?])\s+", line)
@@ -216,7 +223,7 @@ def categorize(text: str) -> Dict[str, List[str]]:
     contexts = [c for _, c in sentence_pairs]
 
     sentence_embeddings = model.encode(sentences, convert_to_numpy=True, show_progress_bar=False)
-    anchor_embeddings = _build_anchor_embeddings(model)
+    anchor_embeddings = _get_anchor_embeddings(model)
 
     # sim_matrix shape: (n_sentences, n_categories)
     sim_matrix = np.stack(
@@ -237,7 +244,7 @@ def categorize(text: str) -> Dict[str, List[str]]:
         best_score = scores[best_idx]
 
         if best_score < CONFIDENCE_THRESHOLD:
-            continue  # drop low-confidence sentences
+            continue
 
         result[CATEGORIES[best_idx]].append(sentence)
 
@@ -258,11 +265,6 @@ def _greedy_matches(
 ) -> Tuple[List[Tuple[int, int, float]], float, float]:
     """
     Greedy one-to-one matching between JD and resume embeddings.
-
-    For each JD embedding (in order of best match descending), finds the
-    best available resume embedding. Returns the matched pairs, the average
-    similarity of matched pairs (simpleAvg), and the match rate relative
-    to the average document length.
 
     Returns
     -------
@@ -313,8 +315,14 @@ def compute_similarity(
     """
     Compute similarity scores between categorized job description and resume.
 
-    For overview: uses coverage-weighted formula — simpleAvg × (matched / avgDocLength).
-    For other categories: uses max-mean (best match per resume sentence, then average).
+    For overview: coverage-weighted formula — simpleAvg × (matched / avgDocLength).
+
+    For other categories: JD-perspective max-mean.
+      For each JD sentence, find the best-matching resume sentence, then average
+      those per-JD-sentence scores.  This directly measures how many JD
+      requirements are satisfied by the resume (missing requirements drag the
+      mean down), rather than how well the resume's own sentences happen to
+      match something in the JD.
 
     Returns dict with per-category scores and 'overall' (weighted average).
     """
@@ -345,17 +353,14 @@ def compute_similarity(
             )
             scores[cat] = round(coverage_weighted, 4)
         else:
-            sim_matrix = np.stack(
-                [_cosine_similarity(resume_embeddings, job_embeddings[i]) for i in range(len(job_sentences))],
-                axis=1,
-            )
+            # JD-perspective: shape (n_resume, n_job)
+            r_norm = resume_embeddings / (np.linalg.norm(resume_embeddings, axis=1, keepdims=True) + 1e-10)
+            j_norm = job_embeddings / (np.linalg.norm(job_embeddings, axis=1, keepdims=True) + 1e-10)
+            sim_matrix = r_norm @ j_norm.T
 
-            if sim_matrix.size == 0:
-                scores[cat] = 0.0
-                continue
-
-            max_sims = sim_matrix.max(axis=1)
-            scores[cat] = float(np.mean(max_sims))
+            # For each JD sentence, best resume match
+            max_per_jd = sim_matrix.max(axis=0)   # shape: (n_job,)
+            scores[cat] = round(float(np.mean(max_per_jd)), 4)
 
     overall = sum(scores[cat] * category_weights[cat] for cat in CATEGORIES)
     scores["overall"] = overall
@@ -381,7 +386,7 @@ def compare_overviews(
 
     Uses greedy one-to-one matching: each resume sentence can match at
     most one JD sentence, preventing a single resume sentence from being
-    paired with multiple JD sentences. This gives more accurate pairings.
+    paired with multiple JD sentences.
 
     Returns
     -------

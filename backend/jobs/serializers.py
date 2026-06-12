@@ -58,9 +58,12 @@ class SkillAnalysisSerializer(serializers.Serializer):
     matching_skills = serializers.ListField(child=serializers.CharField())
     missing_skills = serializers.ListField(child=serializers.CharField())
     skill_variations = serializers.DictField(child=serializers.CharField(), required=False)
+    skills_from_projects = serializers.ListField(child=serializers.CharField(), required=False)
+    skills_from_certifications = serializers.ListField(child=serializers.CharField(), required=False)
     job_skills_count = serializers.IntegerField()
     resume_skills_count = serializers.IntegerField()
     match_rate = serializers.FloatField()
+    effective_match_rate = serializers.FloatField(required=False)
 
 
 class EducationItemSerializer(serializers.Serializer):
@@ -116,6 +119,8 @@ class ResponsibilityAnalysisSerializer(serializers.Serializer):
     job_responsibilities = serializers.ListField(child=serializers.CharField())
     resume_experience_duties = serializers.ListField(child=serializers.DictField())
     matched_duties = serializers.ListField(child=DutyMatchSerializer())
+    matched_via_projects = serializers.ListField(child=serializers.DictField(), required=False)
     unmatched_responsibilities = serializers.ListField(child=serializers.CharField())
     score = serializers.FloatField()
+    effective_score = serializers.FloatField(required=False)
     explanation = serializers.CharField()

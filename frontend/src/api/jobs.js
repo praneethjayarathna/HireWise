@@ -16,3 +16,29 @@ export function analyzeResume(file, jobDescription) {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
 }
+
+// --- Screening dashboard ---
+
+export function createJobSession(file) {
+  const form = new FormData()
+  form.append('file', file)
+  return api.post('/jobs/sessions/', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+}
+
+export function uploadResumeToSession(sessionId, file) {
+  const form = new FormData()
+  form.append('file', file)
+  return api.post(`/jobs/sessions/${sessionId}/resumes/`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+}
+
+export function getSessionRankings(sessionId) {
+  return api.get(`/jobs/sessions/${sessionId}/rankings/`)
+}
+
+export function getResumeDetail(sessionId, resumeId) {
+  return api.get(`/jobs/sessions/${sessionId}/resumes/${resumeId}/`)
+}

@@ -22,11 +22,20 @@
           <span class="arrow">→</span>
         </RouterLink> -->
 
+        <RouterLink to="/jobs/screen" class="feature-card primary-card">
+          <span class="feature-icon">🏆</span>
+          <div>
+            <h3>Resume Screening Dashboard</h3>
+            <p>Upload a job description, screen multiple resumes at once and see them ranked by fit score.</p>
+          </div>
+          <span class="arrow">→</span>
+        </RouterLink>
+
         <RouterLink to="/resume/matcher" class="feature-card">
           <span class="feature-icon">📊</span>
           <div>
-            <h3>Resume Matcher</h3>
-            <p>Upload your resume and compare it against a job description.</p>
+            <h3>Single Resume Matcher</h3>
+            <p>Upload your resume and compare it against a job description in depth.</p>
           </div>
           <span class="arrow">→</span>
         </RouterLink>
@@ -190,5 +199,19 @@ h1 {
 .feature-card:hover .arrow {
   transform: translateX(4px);
   color: #4f46e5;
+}
+
+.primary-card {
+  border-color: #e0e7ff;
+  background: linear-gradient(135deg, #fafbff 0%, #f0f4ff 100%);
+}
+
+.primary-card:hover {
+  border-color: #a5b4fc;
+  box-shadow: 0 10px 35px rgba(79, 70, 229, 0.18);
+}
+
+.primary-card .feature-icon {
+  background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
 }
 </style>

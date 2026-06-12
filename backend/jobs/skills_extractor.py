@@ -1,11 +1,15 @@
 import re
+import datetime
 import threading
 from typing import Dict, List, Set, Optional, Tuple
 
 import numpy as np
 
-_model = None
-_lock = threading.Lock()
+from .model_loader import get_model as _get_model
+
+# ---------------------------------------------------------------------------
+# Module-level embedding caches
+# ---------------------------------------------------------------------------
 _skill_embeddings: Optional[np.ndarray] = None
 _skill_labels: Optional[List[str]] = None
 _skill_variants: Optional[Dict[str, List[str]]] = None
@@ -20,12 +24,22 @@ _major_labels: Optional[List[str]] = None
 _qual_embeddings: Optional[np.ndarray] = None
 _qual_labels: Optional[List[str]] = None
 
+_cert_embeddings: Optional[np.ndarray] = None
+_cert_labels: Optional[List[str]] = None
+_cert_variants: Optional[Dict[str, List[str]]] = None
+
+_db_lock = threading.Lock()
+
 SKILL_THRESHOLD = 0.55
 MATCH_THRESHOLD = 0.70
 EDU_THRESHOLD = 0.60
 
+# ---------------------------------------------------------------------------
+# Skill database
+# ---------------------------------------------------------------------------
+
 PROGRAMMING_LANGUAGES: Dict[str, List[str]] = {
-    "Python": ["python", "py", "python3"],
+    "Python": ["python", "python3", "python programming"],
     "JavaScript": ["javascript", "js", "ecmascript"],
     "TypeScript": ["typescript", "ts"],
     "Java": ["java", "java ee", "java se"],
@@ -34,144 +48,201 @@ PROGRAMMING_LANGUAGES: Dict[str, List[str]] = {
     "Go": ["go", "golang"],
     "Rust": ["rust"],
     "Ruby": ["ruby", "ruby language"],
-    "PHP": ["php", "php laravel"],
+    "PHP": ["php"],
     "Swift": ["swift", "swift ios"],
     "Kotlin": ["kotlin", "kotlin android"],
     "Scala": ["scala"],
-    "R": ["r", "r programming", "r language"],
+    # "r" alone is too ambiguous — require explicit phrase
+    "R": ["r programming", "r language", "rstudio", "r statistical"],
     "Dart": ["dart", "dart flutter"],
     "SQL": ["sql", "mysql", "postgresql", "plsql", "tsql", "sql query"],
     "HTML": ["html", "html5"],
     "CSS": ["css", "css3", "stylesheet"],
-    "Bash": ["bash", "shell", "sh", "zsh", "bash script"],
+    "Bash": ["bash", "shell scripting", "bash script"],
     "PowerShell": ["powershell", "ps1"],
     "YAML": ["yaml", "yml"],
     "JSON": ["json"],
     "XML": ["xml"],
     "GraphQL": ["graphql", "gql"],
+    "MATLAB": ["matlab", "matlab programming"],
 }
 
 FRONTEND_FRAMEWORKS: Dict[str, List[str]] = {
     "React": ["react", "reactjs", "react.js", "react library"],
     "Vue": ["vue", "vuejs", "vue.js", "vue3"],
-    "Angular": ["angular", "angularjs", "angular 2", "ngular"],
-    "Next.js": ["nextjs", "next.js", "nextjs react", "next"],
+    "Angular": ["angular", "angularjs", "angular 2"],
+    "Next.js": ["nextjs", "next.js", "next react"],
     "Svelte": ["svelte", "sveltejs"],
-    "Nuxt": ["nuxt", "nuxtjs", "nuxt.js", "nuxt vue"],
+    "Nuxt": ["nuxt", "nuxtjs", "nuxt.js"],
     "Gatsby": ["gatsby", "gatsbyjs"],
     "Remix": ["remix", "remix.run"],
     "SvelteKit": ["sveltekit", "svelte kit"],
-    "Solid": ["solid", "solidjs", "solid.js"],
-    "Qwik": ["qwik", "qwikjs"],
-    "React Native": ["react native", "rn", "reactnative"],
+    "React Native": ["react native", "reactnative"],
     "Flutter": ["flutter"],
     "Electron": ["electron", "electronjs"],
-    "Expo": ["expo"],
 }
 
 BACKEND_FRAMEWORKS: Dict[str, List[str]] = {
     "Django": ["django", "django rest", "django rest framework", "drf"],
     "Flask": ["flask", "flask python"],
     "FastAPI": ["fastapi", "fast api"],
-    "Pyramid": ["pyramid", "pyramid framework"],
-    "Bottle": ["bottle", "bottle python"],
     "Express": ["express", "expressjs", "express.js", "node express"],
     "NestJS": ["nestjs", "nest.js", "nest framework"],
-    "Koa": ["koa", "koajs", "koa.js"],
-    "Hapi": ["hapi", "hapijs", "hapi.js"],
-    "Sails": ["sails", "sailsjs", "sails.js"],
-    "Rails": ["rails", "ruby on rails", "ror"],
-    "Sinatra": ["sinatra", "sinatra ruby"],
-    "Spring": ["spring", "spring framework", "spring java"],
+    "Spring": ["spring framework", "spring java"],
     "Spring Boot": ["spring boot", "springboot", "spring-boot"],
-    "Micronaut": ["micronaut"],
-    "Quarkus": ["quarkus"],
+    "Rails": ["rails", "ruby on rails", "ror"],
     "Laravel": ["laravel", "laravel php"],
-    "Symfony": ["symfony"],
-    "Phoenix": ["phoenix", "phoenix elixir"],
-    "Gin": ["gin", "gin go", "gin framework"],
-    "Echo": ["echo", "echo go"],
-    "Fiber": ["fiber", "fiber go", "gofiber"],
-    "Fastify": ["fastify", "fastify js"],
-    "Play": ["play framework", "play scala"],
-    "Akka": ["akka"],
-    "DotNet": ["asp.net", "asp.net core", ".net core", ".net", "dotnet", "dotnet core"],
+    "ASP.NET": ["asp.net", "asp.net core", ".net core", "dotnet core"],
+    "FastAPI": ["fastapi", "fast api"],
+    "Gin": ["gin go", "gin framework"],
+    "Fiber": ["fiber go", "gofiber"],
+    "Fastify": ["fastify"],
+    "Hapi": ["hapijs", "hapi.js"],
+    "Koa": ["koa", "koajs"],
+    "Phoenix": ["phoenix elixir"],
+    "Pyramid": ["pyramid framework"],
 }
 
 CSS_FRAMEWORKS: Dict[str, List[str]] = {
     "Tailwind": ["tailwind", "tailwindcss", "tailwind css"],
     "Bootstrap": ["bootstrap", "bs5"],
     "Material UI": ["material ui", "mui", "@mui"],
-    "Ant Design": ["ant design", "antd", "ant design react"],
+    "Ant Design": ["ant design", "antd"],
     "Chakra UI": ["chakra", "chakra ui"],
-    "Styled Components": ["styled-components", "styled components", "css-in-js"],
-    "Sass": ["sass", "scss", "sass css", "syntactically awesome"],
-    "Less": ["less", "less css"],
-    "Bulma": ["bulma", "bulma css"],
-    "Foundation": ["foundation", "zurb foundation"],
-    "Vuetify": ["vuetify", "vuetifyjs"],
-    "Quasar": ["quasar", "quasar framework"],
-    "UIKit": ["uikit", "ui kit"],
+    "Styled Components": ["styled-components", "styled components"],
+    "Sass": ["sass", "scss"],
+    "Vuetify": ["vuetify"],
+    "Quasar": ["quasar framework"],
 }
 
 DATABASES: Dict[str, List[str]] = {
-    "PostgreSQL": ["postgresql", "postgres", "psql", "postgresql database"],
+    "PostgreSQL": ["postgresql", "postgres", "psql"],
     "MySQL": ["mysql", "mysql database"],
     "MongoDB": ["mongodb", "mongo", "mongo db"],
     "Redis": ["redis", "redis cache"],
-    "Elasticsearch": ["elasticsearch", "elastic", "elastic search", "elk"],
+    "Elasticsearch": ["elasticsearch", "elastic search", "elk"],
     "DynamoDB": ["dynamodb", "dynamo db", "aws dynamodb"],
-    "SQLite": ["sqlite", "sqlite3", "sqlite database"],
+    "SQLite": ["sqlite", "sqlite3"],
     "Oracle": ["oracle", "oracle db", "oracle database"],
     "SQL Server": ["sql server", "mssql", "ms sql"],
     "Cassandra": ["cassandra", "apache cassandra"],
-    "CouchDB": ["couchdb", "couch db"],
     "Neo4j": ["neo4j", "neo4j graph"],
     "Firebase": ["firebase", "firebase realtime"],
     "Supabase": ["supabase"],
-    "PlanetScale": ["planetscale", "planet scale"],
-    "InfluxDB": ["influxdb", "influx db", "influx"],
-    "TimescaleDB": ["timescaledb", "timescale db"],
-    "ClickHouse": ["clickhouse", "click house"],
+    "ClickHouse": ["clickhouse"],
+    "InfluxDB": ["influxdb", "influx db"],
+    "TimescaleDB": ["timescaledb"],
 }
 
 DEVOPS_CLOUD: Dict[str, List[str]] = {
     "Docker": ["docker", "docker container", "docker-compose", "docker compose"],
-    "Kubernetes": ["kubernetes", "k8s", "k8", "kubernetes container"],
+    "Kubernetes": ["kubernetes", "k8s"],
     "Helm": ["helm", "helm chart"],
-    "Terraform": ["terraform", "terraform iac", "tf"],
+    "Terraform": ["terraform", "terraform iac"],
     "Ansible": ["ansible", "ansible automation"],
-    "Jenkins": ["jenkins", "jenkins ci", "jenkins cd"],
-    "GitLab CI": ["gitlab ci", "gitlabcicd", "gitlab-runner"],
+    "Jenkins": ["jenkins", "jenkins ci"],
+    "GitLab CI": ["gitlab ci", "gitlab-runner"],
     "GitHub Actions": ["github actions", "gha", "github workflow"],
-    "CircleCI": ["circleci", "circle ci"],
-    "AWS": ["aws", "amazon web services", "amazon aws", "ec2", "s3", "lambda aws"],
-    "Azure": ["azure", "microsoft azure", "az"],
+    "CircleCI": ["circleci"],
+    "AWS": ["aws", "amazon web services", "ec2", "s3", "lambda aws"],
+    "Azure": ["azure", "microsoft azure"],
     "GCP": ["gcp", "google cloud", "google cloud platform"],
-    "Vercel": ["vercel", "vercel deploy"],
+    "Vercel": ["vercel"],
     "Netlify": ["netlify"],
     "Heroku": ["heroku"],
-    "Nginx": ["nginx", "nginx server"],
-    "Apache": ["apache", "apache server", "httpd"],
-    "Traefik": ["traefik", "traefik proxy"],
-    "Prometheus": ["prometheus", "prometheus monitoring"],
-    "Grafana": ["grafana", "grafana dashboard"],
-    "Datadog": ["datadog", "datadog monitoring"],
-    "Sentry": ["sentry", "sentry error"],
+    "Nginx": ["nginx"],
+    "Prometheus": ["prometheus"],
+    "Grafana": ["grafana"],
+    "Datadog": ["datadog"],
+    "Sentry": ["sentry"],
     "Git": ["git", "github", "gitlab", "bitbucket", "version control"],
+    "Linux": ["linux", "ubuntu", "centos", "debian"],
 }
 
 TESTING: Dict[str, List[str]] = {
-    "Pytest": ["pytest", "python test", "unittest", "nose"],
-    "Jest": ["jest", "jestjs", "jest testing"],
+    "Pytest": ["pytest", "unittest", "python test"],
+    "Jest": ["jest", "jestjs"],
     "Mocha": ["mocha", "mochajs"],
-    "Cypress": ["cypress", "cypress.io", "cypress e2e"],
-    "Playwright": ["playwright", "playwright test"],
+    "Cypress": ["cypress", "cypress e2e"],
+    "Playwright": ["playwright"],
     "Selenium": ["selenium", "selenium webdriver"],
-    "Puppeteer": ["puppeteer", "puppeteer test"],
-    "JUnit": ["junit", "junit test", "testng"],
-    "RSpec": ["rspec", "ruby test"],
-    "Cucumber": ["cucumber", "gherkin", "bdd cucumber"],
+    "JUnit": ["junit", "testng"],
+    "Cucumber": ["cucumber", "gherkin", "bdd"],
+}
+
+AI_ML_FRAMEWORKS: Dict[str, List[str]] = {
+    "TensorFlow": ["tensorflow", "tf", "tensorflow keras"],
+    "PyTorch": ["pytorch", "torch", "pytorch lightning"],
+    "Keras": ["keras", "keras api"],
+    "scikit-learn": ["scikit-learn", "sklearn", "scikit learn"],
+    "Hugging Face": ["hugging face", "huggingface", "transformers", "hf transformers"],
+    "XGBoost": ["xgboost", "xgb"],
+    "LightGBM": ["lightgbm", "lgbm"],
+    "CatBoost": ["catboost"],
+    "OpenCV": ["opencv", "cv2", "open cv"],
+    "NLTK": ["nltk", "natural language toolkit"],
+    "spaCy": ["spacy", "spacy nlp"],
+    "LangChain": ["langchain", "lang chain"],
+    "OpenAI": ["openai", "gpt api", "openai api"],
+    "ONNX": ["onnx", "onnx runtime"],
+    "MLflow": ["mlflow", "ml flow"],
+    "Ray": ["ray", "ray tune", "ray rllib"],
+    "Weights & Biases": ["wandb", "weights and biases", "weights & biases"],
+    "FastAI": ["fastai", "fast.ai"],
+}
+
+DATA_SCIENCE_LIBRARIES: Dict[str, List[str]] = {
+    "pandas": ["pandas", "pd dataframe"],
+    "NumPy": ["numpy", "np array", "numerical python"],
+    "Matplotlib": ["matplotlib", "plt", "pyplot"],
+    "Seaborn": ["seaborn", "sns"],
+    "SciPy": ["scipy", "scientific python"],
+    "Plotly": ["plotly", "plotly dash"],
+    "Jupyter": ["jupyter", "jupyter notebook", "jupyter lab"],
+    "Streamlit": ["streamlit"],
+    "Dash": ["dash plotly", "plotly dash"],
+    "Apache Spark": ["apache spark", "pyspark", "spark dataframe"],
+    "Dask": ["dask", "dask dataframe"],
+    "Polars": ["polars"],
+    "Power BI": ["power bi", "powerbi", "ms power bi"],
+    "Tableau": ["tableau"],
+    "Apache Airflow": ["airflow", "apache airflow"],
+    "dbt": ["dbt", "data build tool"],
+}
+
+MESSAGE_QUEUES: Dict[str, List[str]] = {
+    "Apache Kafka": ["kafka", "apache kafka", "kafka streaming"],
+    "RabbitMQ": ["rabbitmq", "rabbit mq"],
+    "Celery": ["celery", "celery worker"],
+    "AWS SQS": ["aws sqs", "sqs", "amazon sqs"],
+    "Google Pub/Sub": ["google pubsub", "gcp pubsub", "pub/sub"],
+    "Apache ActiveMQ": ["activemq", "apache activemq"],
+    "NATS": ["nats", "nats messaging"],
+    "ZeroMQ": ["zeromq", "zmq"],
+    "Redis Streams": ["redis streams", "redis pub/sub"],
+}
+
+METHODOLOGIES: Dict[str, List[str]] = {
+    "Agile": ["agile", "agile methodology", "agile development", "agile software"],
+    "Scrum": ["scrum", "scrum methodology", "scrum framework"],
+    "Kanban": ["kanban", "kanban board"],
+    "SAFe": ["safe", "scaled agile", "scaled agile framework"],
+    "DevOps": ["devops", "dev ops", "devops practices", "devops culture"],
+    "CI/CD": ["ci/cd", "continuous integration", "continuous delivery", "continuous deployment"],
+    "TDD": ["tdd", "test driven development", "test-driven development"],
+    "BDD": ["bdd", "behavior driven development", "behaviour driven development"],
+    "Microservices": ["microservices", "microservice architecture", "micro services"],
+    "REST API": ["rest api", "restful api", "rest services", "restful services", "restful"],
+    "gRPC": ["grpc", "grpc api", "protocol buffers"],
+    "GraphQL API": ["graphql api", "graphql endpoint"],
+    "WebSocket": ["websocket", "web socket", "websockets"],
+    "OAuth": ["oauth", "oauth2", "oauth 2.0"],
+    "JWT": ["jwt", "json web token"],
+    "System Design": ["system design", "distributed systems", "high availability", "scalable systems"],
+    "Code Review": ["code review", "pull request", "peer review", "pr review"],
+    "Version Control": ["version control", "git workflow", "branching strategy"],
+    "OOP": ["object oriented", "oop", "object-oriented programming"],
+    "Functional Programming": ["functional programming", "fp", "pure functions"],
 }
 
 ALL_SKILL_CATEGORIES: Dict[str, Dict[str, List[str]]] = {
@@ -182,20 +253,16 @@ ALL_SKILL_CATEGORIES: Dict[str, Dict[str, List[str]]] = {
     "Databases": DATABASES,
     "DevOps & Cloud": DEVOPS_CLOUD,
     "Testing": TESTING,
+    "AI/ML Frameworks": AI_ML_FRAMEWORKS,
+    "Data Science Libraries": DATA_SCIENCE_LIBRARIES,
+    "Message Queues": MESSAGE_QUEUES,
+    "Methodologies & Practices": METHODOLOGIES,
 }
 
 
-def _get_model():
-    global _model
-    if _model is None:
-        with _lock:
-            if _model is None:
-                from dotenv import load_dotenv
-                load_dotenv()
-                from sentence_transformers import SentenceTransformer
-                _model = SentenceTransformer("all-mpnet-base-v2")
-    return _model
-
+# ---------------------------------------------------------------------------
+# Skill extraction helpers
+# ---------------------------------------------------------------------------
 
 def _build_skill_database():
     global _skill_embeddings, _skill_labels, _skill_variants
@@ -203,26 +270,30 @@ def _build_skill_database():
     if _skill_embeddings is not None:
         return
 
-    model = _get_model()
+    with _db_lock:
+        if _skill_embeddings is not None:
+            return
 
-    all_labels: List[str] = []
-    all_variants: Dict[str, List[str]] = {}
+        model = _get_model()
 
-    for category, skills in ALL_SKILL_CATEGORIES.items():
-        for skill_name, variants in skills.items():
-            for variant in variants:
-                normalized = variant.lower().strip()
-                all_labels.append(normalized)
-                if skill_name not in all_variants:
-                    all_variants[skill_name] = []
-                all_variants[skill_name].append(normalized)
+        all_labels: List[str] = []
+        all_variants: Dict[str, List[str]] = {}
 
-    _skill_labels = all_labels
-    _skill_variants = all_variants
-    _skill_embeddings = model.encode(all_labels, convert_to_numpy=True, show_progress_bar=False)
+        for category, skills in ALL_SKILL_CATEGORIES.items():
+            for skill_name, variants in skills.items():
+                for variant in variants:
+                    normalized = variant.lower().strip()
+                    all_labels.append(normalized)
+                    if skill_name not in all_variants:
+                        all_variants[skill_name] = []
+                    all_variants[skill_name].append(normalized)
+
+        _skill_labels = all_labels
+        _skill_variants = all_variants
+        _skill_embeddings = model.encode(all_labels, convert_to_numpy=True, show_progress_bar=False)
 
 
-def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+def _cosine_similarity_vec(a: np.ndarray, b: np.ndarray) -> float:
     a_norm = a / (np.linalg.norm(a) + 1e-10)
     b_norm = b / (np.linalg.norm(b) + 1e-10)
     return float(np.dot(a_norm, b_norm))
@@ -274,7 +345,9 @@ def _semantic_skill_match(
     job_embeddings = model.encode(job_skill_list, convert_to_numpy=True, show_progress_bar=False)
     resume_embeddings = model.encode(resume_skill_list, convert_to_numpy=True, show_progress_bar=False)
 
-    similarity_matrix = job_embeddings @ resume_embeddings.T
+    j_norm = job_embeddings / (np.linalg.norm(job_embeddings, axis=1, keepdims=True) + 1e-10)
+    r_norm = resume_embeddings / (np.linalg.norm(resume_embeddings, axis=1, keepdims=True) + 1e-10)
+    similarity_matrix = j_norm @ r_norm.T
 
     matched = []
     missing = []
@@ -282,33 +355,36 @@ def _semantic_skill_match(
 
     matched_indices = set()
     for i, job_skill in enumerate(job_skill_list):
-        best_j = -1
-        best_sim = 0
-        for j, resume_skill in enumerate(resume_skill_list):
-            if j in matched_indices:
-                continue
-            sim = similarity_matrix[i, j]
-            if sim > best_sim:
-                best_sim = sim
-                best_j = j
+        best_j = int(np.argmax(similarity_matrix[i]))
+        best_sim = float(similarity_matrix[i, best_j])
 
-        if best_j >= 0 and best_sim >= MATCH_THRESHOLD:
+        if best_j not in matched_indices and best_sim >= MATCH_THRESHOLD:
             matched.append(resume_skill_list[best_j])
             matched_indices.add(best_j)
             if resume_skill_list[best_j] != job_skill:
                 variations[job_skill] = resume_skill_list[best_j]
         else:
-            missing.append(job_skill)
+            # Try next best not already matched
+            found = False
+            order = np.argsort(similarity_matrix[i])[::-1]
+            for j in order:
+                if j not in matched_indices and similarity_matrix[i, j] >= MATCH_THRESHOLD:
+                    matched.append(resume_skill_list[j])
+                    matched_indices.add(j)
+                    if resume_skill_list[j] != job_skill:
+                        variations[job_skill] = resume_skill_list[j]
+                    found = True
+                    break
+            if not found:
+                missing.append(job_skill)
 
     return matched, missing, variations
 
 
 def extract_skills_with_scores(text: str) -> Dict[str, Dict[str, float]]:
     text_lower = text.lower()
-    text_normalized = re.sub(r'[^a-z0-9\s\.\-\+\#]', ' ', text_lower)
+    text_normalized = re.sub(r'[^a-z0-9\s\.\-\+\#/]', ' ', text_lower)
     text_normalized = re.sub(r'\s+', ' ', text_normalized)
-
-    keyword_skills = _find_skills_in_text(text_normalized)
 
     result: Dict[str, Dict[str, float]] = {}
     for category in ALL_SKILL_CATEGORIES:
@@ -319,8 +395,7 @@ def extract_skills_with_scores(text: str) -> Dict[str, Dict[str, float]]:
             for variant in variants:
                 pattern = r'\b' + re.escape(variant.lower()) + r'\b'
                 if re.search(pattern, text_normalized):
-                    score = keyword_skills.get(skill_name, 0.85)
-                    result[category][skill_name] = score
+                    result[category][skill_name] = 0.90
                     break
 
     return {cat: skills for cat, skills in result.items() if skills}
@@ -342,28 +417,229 @@ def extract_all_skills(text: str) -> List[str]:
     return all_skills
 
 
-def compare_skills(job_text: str, resume_text: str) -> Dict[str, any]:
+# ---------------------------------------------------------------------------
+# Certification → skill mapping (predefined, IT-domain only)
+# ---------------------------------------------------------------------------
+
+CERT_SKILL_MAPPING: Dict[str, List[str]] = {
+    "AWS Certified Solutions Architect": [
+        "AWS", "EC2", "S3", "IAM", "VPC", "CloudFormation", "Lambda", "RDS", "System Design",
+    ],
+    "AWS Certified Developer": [
+        "AWS", "Lambda", "DynamoDB", "S3", "API Gateway", "CloudWatch", "Python", "REST API",
+    ],
+    "AWS Certified SysOps Administrator": [
+        "AWS", "EC2", "CloudFormation", "CloudWatch", "IAM", "Linux",
+    ],
+    "AWS Certified DevOps Engineer": [
+        "AWS", "Docker", "Kubernetes", "CI/CD", "Jenkins", "CloudFormation", "DevOps",
+    ],
+    "AWS Certified Machine Learning": [
+        "AWS", "Python", "TensorFlow", "scikit-learn", "Machine Learning", "Data Science Libraries",
+    ],
+    "Google Cloud Professional Architect": [
+        "GCP", "Kubernetes", "System Design", "Cloud Computing",
+    ],
+    "Google Cloud Professional Data Engineer": [
+        "GCP", "Apache Spark", "TensorFlow", "Python", "pandas", "Apache Airflow",
+    ],
+    "Google Cloud Associate Cloud Engineer": [
+        "GCP", "Kubernetes", "Docker", "Linux",
+    ],
+    "Microsoft Azure Fundamentals": [
+        "Azure",
+    ],
+    "Microsoft Azure Administrator": [
+        "Azure", "PowerShell", "Linux",
+    ],
+    "Microsoft Azure Solutions Architect": [
+        "Azure", "System Design", "Cloud Computing",
+    ],
+    "Certified Kubernetes Administrator": [
+        "Kubernetes", "Docker", "Linux", "CI/CD", "Helm",
+    ],
+    "Certified Kubernetes Application Developer": [
+        "Kubernetes", "Docker", "Go", "Python",
+    ],
+    "Terraform Associate": [
+        "Terraform", "AWS", "Azure", "GCP", "DevOps", "CI/CD",
+    ],
+    "CISSP": [
+        "Cybersecurity", "OAuth", "JWT",
+    ],
+    "CompTIA Security+": [
+        "Cybersecurity",
+    ],
+    "CompTIA Network+": [
+        "Networking",
+    ],
+    "Cisco CCNA": [
+        "Networking",
+    ],
+    "PMP": [
+        "Agile", "Scrum",
+    ],
+    "Certified ScrumMaster": [
+        "Scrum", "Agile", "Kanban",
+    ],
+    "Tableau Certified Data Analyst": [
+        "Tableau",
+    ],
+    "PowerBI Data Analyst": [
+        "Power BI",
+    ],
+    "TensorFlow Developer Certificate": [
+        "TensorFlow", "Python", "scikit-learn", "Deep Learning",
+    ],
+    "Deep Learning Specialization": [
+        "TensorFlow", "PyTorch", "Python", "scikit-learn", "Deep Learning", "Machine Learning",
+    ],
+    "MongoDB University": [
+        "MongoDB",
+    ],
+    "Oracle Certified Professional": [
+        "Oracle", "SQL", "Java",
+    ],
+}
+
+
+def _get_implied_skills_from_certs(certifications: List[Dict[str, any]]) -> Dict[str, Set[str]]:
+    """
+    Return {cert_name: {skill, ...}} for each certification.
+
+    For known certs uses CERT_SKILL_MAPPING.  For unknown certs, falls back to
+    running the keyword skill extractor on the certification name itself
+    (e.g. 'Google TensorFlow Developer Certificate' → TensorFlow, Python).
+    """
+    result: Dict[str, Set[str]] = {}
+    for cert in certifications:
+        name = cert.get("certification", "")
+        if not name:
+            continue
+        if name in CERT_SKILL_MAPPING:
+            result[name] = set(CERT_SKILL_MAPPING[name])
+        else:
+            # Mine skills from the cert name text
+            mined = extract_skills_with_scores(name)
+            implied = {skill for cat in mined.values() for skill in cat}
+            if implied:
+                result[name] = implied
+    return result
+
+
+def compare_skills(
+    job_text: str,
+    resume_text: str,
+    projects: Optional[List[Dict[str, any]]] = None,
+    certifications: Optional[List[Dict[str, any]]] = None,
+) -> Dict[str, any]:
+    """
+    Skill comparison enriched with project and certification evidence.
+
+    Direct skills (from resume text) are matched first.
+    Skills discovered in project descriptions and implied by certifications
+    fill in additional coverage for skills not listed in the skills section.
+
+    Returns
+    -------
+    dict with:
+      matching_skills          – directly matched from resume text
+      missing_skills           – not found through any source
+      skill_variations         – semantic name variations (e.g. sklearn ↔ scikit-learn)
+      skills_from_projects     – job skills covered by project descriptions
+      skills_from_certifications – job skills covered by cert implications
+      job_skills_count
+      resume_skills_count
+      match_rate               – direct-evidence match rate (%)
+      effective_match_rate     – total coverage including projects & certs (%)
+    """
     job_skills = extract_skills_with_scores(job_text)
-    resume_skills = extract_skills_with_scores(resume_text)
+    resume_skills_direct = extract_skills_with_scores(resume_text)
 
-    job_flat = {name: score for cat_scores in job_skills.values() for name, score in cat_scores.items()}
-    resume_flat = {name: score for cat_scores in resume_skills.values() for name, score in cat_scores.items()}
-
-    exact_match = set(job_flat.keys()) & set(resume_flat.keys())
-    semantic_match, still_missing, variations = _semantic_skill_match(job_flat, resume_flat)
-
-    all_matched = sorted(set(exact_match) | set(semantic_match))
-    all_missing = sorted(set(still_missing) - set(semantic_match))
-
-    return {
-        "matching_skills": all_matched,
-        "missing_skills": all_missing,
-        "skill_variations": variations,
-        "job_skills_count": len(job_flat),
-        "resume_skills_count": len(resume_flat),
-        "match_rate": round(len(all_matched) / len(job_flat) * 100, 1) if job_flat else 0,
+    job_flat: Dict[str, float] = {
+        name: score for cat in job_skills.values() for name, score in cat.items()
+    }
+    resume_flat: Dict[str, float] = {
+        name: score for cat in resume_skills_direct.values() for name, score in cat.items()
     }
 
+    # --- Layer 1: direct skill matching ---
+    exact_match = set(job_flat) & set(resume_flat)
+    semantic_match, still_missing, variations = _semantic_skill_match(job_flat, resume_flat)
+    direct_matched: Set[str] = set(exact_match) | set(semantic_match)
+    direct_missing: Set[str] = set(still_missing) - set(semantic_match)
+
+    # --- Layer 2: skills from project descriptions ---
+    project_skill_names: Set[str] = set()
+    if projects:
+        project_text = " ".join(
+            f"{p.get('project_title', '')} {p.get('description', '')}"
+            for p in projects
+        )
+        if project_text.strip():
+            proj_skills = extract_skills_with_scores(project_text)
+            proj_flat = {name for cat in proj_skills.values() for name in cat}
+            # Only count skills that are in the JD AND not already directly matched
+            project_skill_names = (direct_missing & proj_flat) | _semantic_overlap(
+                direct_missing, proj_flat
+            )
+
+    # --- Layer 3: skills implied by certifications ---
+    cert_skill_names: Set[str] = set()
+    if certifications:
+        cert_implied = _get_implied_skills_from_certs(certifications)
+        all_implied: Set[str] = set()
+        for skills in cert_implied.values():
+            all_implied |= skills
+        # Only count skills that are in the JD AND not already covered
+        remaining = direct_missing - project_skill_names
+        cert_skill_names = (remaining & all_implied) | _semantic_overlap(
+            remaining, all_implied
+        )
+
+    # Build final answer
+    all_matched = sorted(direct_matched | project_skill_names | cert_skill_names)
+    all_missing = sorted(direct_missing - project_skill_names - cert_skill_names)
+
+    return {
+        "matching_skills": sorted(direct_matched),
+        "missing_skills": all_missing,
+        "skill_variations": variations,
+        "skills_from_projects": sorted(project_skill_names),
+        "skills_from_certifications": sorted(cert_skill_names),
+        "job_skills_count": len(job_flat),
+        "resume_skills_count": len(resume_flat),
+        "match_rate": round(len(direct_matched) / len(job_flat) * 100, 1) if job_flat else 0,
+        "effective_match_rate": round(len(all_matched) / len(job_flat) * 100, 1) if job_flat else 0,
+    }
+
+
+def _semantic_overlap(job_missing: Set[str], candidate_skills: Set[str]) -> Set[str]:
+    """
+    Return the subset of *job_missing* skills that are semantically covered
+    by *candidate_skills* (threshold MATCH_THRESHOLD).
+    Only called when the two sets don't overlap exactly.
+    """
+    if not job_missing or not candidate_skills:
+        return set()
+    model = _get_model()
+    jm_list = list(job_missing)
+    cs_list = list(candidate_skills)
+    jm_embs = model.encode(jm_list, convert_to_numpy=True, show_progress_bar=False)
+    cs_embs = model.encode(cs_list, convert_to_numpy=True, show_progress_bar=False)
+    jm_norm = jm_embs / (np.linalg.norm(jm_embs, axis=1, keepdims=True) + 1e-10)
+    cs_norm = cs_embs / (np.linalg.norm(cs_embs, axis=1, keepdims=True) + 1e-10)
+    sim = jm_norm @ cs_norm.T   # (n_missing, n_candidates)
+    covered: Set[str] = set()
+    for i, skill in enumerate(jm_list):
+        if float(sim[i].max()) >= MATCH_THRESHOLD:
+            covered.add(skill)
+    return covered
+
+
+# ---------------------------------------------------------------------------
+# Education extraction
+# ---------------------------------------------------------------------------
 
 EDUCATION_LEVELS: Dict[str, int] = {
     "Certificate": 1,
@@ -377,152 +653,116 @@ EDUCATION_LEVEL_PATTERNS: Dict[str, List[str]] = {
     "PhD": [
         "phd", "ph.d", "ph d", "doctor of philosophy", "doctorate",
         "doctoral", "phd degree", "doctorate degree", "phd in",
-        "philosophy doctorate", "doctorate holder", "d.phil",
-        "doctor of science", "d.sc", "d.litt",
+        "philosophy doctorate", "d.phil", "doctor of science", "d.sc",
     ],
     "Master's": [
         "master", "master's", "masters", "master's degree", "ms", "m.s",
-        "m.sc", "mba", "mba degree", "msc", "msc degree", "ma", "m.a",
+        "m.sc", "mba", "msc", "ma", "m.a",
         "master of science", "master of arts", "master of business",
         "master of computer applications", "mca", "master degree",
-        "postgraduate", "post graduate", "pg degree", "postgrad",
-        "mtech", "m.tech", "m eng", "m.eng", "mtECH", "m.sc.",
-        "ms in", "master's in", "ms degree", "post graduate degree",
-        " postgraduate degree",
+        "postgraduate", "post graduate", "mtech", "m.tech", "m.eng",
+        "ms in", "master's in",
     ],
     "Bachelor's": [
         "bachelor", "bachelor's", "bachelors", "bachelor's degree",
-        "bs", "b.s", "bsc", "bsc degree", "bs degree", "bachelor degree",
+        "bs", "b.s", "bsc", "bs degree",
         "b.e", "be", "b tech", "btech", "b.tech", "bachelor of engineering",
         "bachelor of science", "bachelor of arts", "ba", "b.a",
-        "undergraduate", "under grad", "ug degree",
-        "bs in", "bachelor's in", "bs degree", "b.sc.", "b.sc",
-        "engineering degree", "computer science degree",
-        "graduated with", "graduate in", "graduated from",
-        "bsc(hons)", "b.sc (hons)", "bachelor honours",
+        "undergraduate", "ug degree", "bs in", "bachelor's in", "b.sc",
+        "engineering degree",
     ],
     "Associate": [
-        "associate", "associate's", "associate degree", "ad", "a.s",
-        "associate of science", "associate of arts", "associate degree in",
-        "advanced diploma", "higher diploma", "diploma holder", "diploma in",
-        "foundation degree",
+        "associate", "associate's", "associate degree",
+        "associate of science", "associate of arts",
+        "advanced diploma", "higher diploma", "diploma in",
     ],
     "Certificate": [
         "certificate", "certification", "certified", "certificate course",
-        "professional certificate", "google certified", "aws certified",
-        "microsoft certified", "comptia", "certs", "certified in",
-        "certificate program", "nanodegree", "microdegree",
+        "professional certificate", "nanodegree",
     ],
 }
 
 MAJOR_PATTERNS: Dict[str, List[str]] = {
     "Computer Science": [
-        "computer science", "computer science", "cs", "computer sciences",
-        "computing", "computational science", "computer science and engineering",
-        "cs major", "computer science degree",
+        "computer science", "cs", "computing", "computational science",
+        "computer science and engineering",
     ],
     "Software Engineering": [
-        "software engineering", "software engineer", "se", "software development",
-        "software technology", "software systems", "software design",
-        "software engineering degree",
+        "software engineering", "software development", "software systems",
+        "software technology",
     ],
     "Information Technology": [
-        "information technology", "it", "information systems", "is",
-        "information technology management", "it management",
-        "business it", "it solutions",
+        "information technology", "it", "information systems",
+        "information technology management",
     ],
     "Data Science": [
-        "data science", "data scientist", "ds", "data analytics", "analytics",
-        "data engineering", "data analysis", "big data",
-        "data science and analytics",
+        "data science", "data analytics", "data engineering",
+        "data analysis", "big data",
     ],
     "Artificial Intelligence": [
-        "artificial intelligence", "ai", "machine learning", "ml",
-        "deep learning", "neural networks", "ai ml", "intelligent systems",
-        "natural language processing", "computer vision",
+        "artificial intelligence", "machine learning", "deep learning",
+        "neural networks", "natural language processing", "computer vision",
+        "ai ml", "intelligent systems",
     ],
     "Electrical Engineering": [
-        "electrical engineering", "ee", "electronics", "electronic engineering",
+        "electrical engineering", "electronics", "electronic engineering",
         "electronics and communication", "ece", "electrical and electronics",
-        "power systems", "control systems",
-    ],
-    "Mechanical Engineering": [
-        "mechanical engineering", "me", "mech", "mechanical",
-        "automobile engineering", "automotive engineering", "manufacturing",
-    ],
-    "Civil Engineering": [
-        "civil engineering", "structural engineering", "construction",
-        "environmental engineering", "geotechnical",
-    ],
-    "Business Administration": [
-        "business administration", "business management", "mba",
-        "business analytics", "business studies", "commerce",
-        "business", "management studies",
     ],
     "Mathematics": [
         "mathematics", "maths", "applied mathematics", "statistics",
-        "math", "mathematical sciences",
-    ],
-    "Physics": [
-        "physics", "applied physics", "theoretical physics", "astrophysics",
+        "mathematical sciences",
     ],
     "Cybersecurity": [
         "cyber security", "cybersecurity", "information security",
-        "network security", "security", "cyber defense",
+        "network security",
     ],
     "Cloud Computing": [
-        "cloud computing", "cloud", "cloud architecture", "cloud services",
+        "cloud computing", "cloud architecture", "cloud engineering",
+        "cloud infrastructure",
     ],
     "Web Development": [
-        "web development", "web design", "web engineering",
-        "frontend", "backend", "full stack", "fullstack",
+        "web development", "web engineering", "frontend engineering",
+        "backend engineering", "full stack development",
     ],
     "Mobile Development": [
-        "mobile development", "mobile computing", "ios development",
-        "android development", "mobile apps",
-    ],
-    "Database": [
-        "database", "database management", "db", "data management",
-        "database systems", "dbms",
+        "mobile development", "mobile engineering", "ios development",
+        "android development",
     ],
     "Networking": [
         "networking", "computer networks", "network engineering",
-        "telecommunications", "communication",
+        "telecommunications",
+    ],
+    "Database": [
+        "database", "database management", "database systems", "dbms",
     ],
 }
 
 QUALIFICATION_TYPE_PATTERNS: Dict[str, List[str]] = {
     "Bachelor of Science": [
-        "bachelor of science", "b.sc", "bsc", "bs", "b.s", "bachelor science",
-        "bsci", "bachelor of scientific studies",
+        "bachelor of science", "b.sc", "bsc", "bs", "b.s",
     ],
     "Bachelor of Engineering": [
-        "bachelor of engineering", "b.e", "be", "bachelor engineering",
-        "bachelor of technology", "b.tech", "btech", "btECH",
-        "bachelor of applied sciences",
+        "bachelor of engineering", "b.e", "be", "bachelor of technology",
+        "b.tech", "btech",
     ],
     "Bachelor of Arts": [
-        "bachelor of arts", "b.a", "ba", "bachelor arts",
-        "ba hon", "ba(hons)", "bachelor of humanities",
+        "bachelor of arts", "b.a", "ba",
     ],
     "Master of Science": [
-        "master of science", "m.sc", "msc", "ms", "m.s", "master science",
-        "msci", "master of scientific studies", "msc.",
+        "master of science", "m.sc", "msc", "ms", "m.s",
     ],
     "Master of Engineering": [
-        "master of engineering", "m.e", "me", "m.eng", "meng",
-        "master of technology", "m.tech", "mtECH",
+        "master of engineering", "m.e", "m.eng", "master of technology",
+        "m.tech",
     ],
     "Master of Arts": [
-        "master of arts", "m.a", "ma", "master arts",
+        "master of arts", "m.a", "ma",
     ],
     "Master of Business Administration": [
-        "master of business administration", "mba", "executive mba",
-        "international mba", "mba degree",
+        "master of business administration", "mba",
     ],
     "Doctor of Philosophy": [
-        "doctor of philosophy", "phd", "ph.d", "ph d", "doctorate",
-        "doctoral degree", "doctor of science",
+        "doctor of philosophy", "phd", "ph.d", "doctorate",
     ],
 }
 
@@ -535,184 +775,113 @@ def _build_education_semantic_db():
     if _edu_embeddings is not None:
         return
 
-    model = _get_model()
+    with _db_lock:
+        if _edu_embeddings is not None:
+            return
 
-    edu_labels = []
-    for edu_type, variants in EDUCATION_LEVEL_PATTERNS.items():
-        for variant in variants:
-            edu_labels.append(variant.lower().strip())
-    _edu_labels = edu_labels
-    _edu_levels = EDUCATION_LEVELS
-    _edu_embeddings = model.encode(edu_labels, convert_to_numpy=True, show_progress_bar=False)
+        model = _get_model()
 
-    major_labels = []
-    for major, variants in MAJOR_PATTERNS.items():
-        for variant in variants:
-            major_labels.append(variant.lower().strip())
-    _major_labels = major_labels
-    _major_embeddings = model.encode(major_labels, convert_to_numpy=True, show_progress_bar=False)
-
-    qual_labels = []
-    for qual, variants in QUALIFICATION_TYPE_PATTERNS.items():
-        for variant in variants:
-            qual_labels.append(variant.lower().strip())
-    _qual_labels = qual_labels
-    _qual_embeddings = model.encode(qual_labels, convert_to_numpy=True, show_progress_bar=False)
-
-
-def _semantic_extract_component(
-    text: str,
-    patterns: Dict[str, List[str]],
-    embeddings: np.ndarray,
-    all_labels: List[str],
-    threshold: float = 0.55
-) -> List[Dict[str, any]]:
-    model = _get_model()
-    text_lower = text.lower()
-
-    sentences = re.split(r'[.!?\n]+', text_lower)
-    sentences = [s.strip() for s in sentences if len(s.strip()) > 8]
-
-    if not sentences:
-        return []
-
-    text_embeddings = model.encode(sentences, convert_to_numpy=True, show_progress_bar=False)
-
-    found = []
-
-    for pattern_type, variants in patterns.items():
-        type_indices = []
-        for idx, label in enumerate(all_labels):
+        edu_labels = []
+        for edu_type, variants in EDUCATION_LEVEL_PATTERNS.items():
             for variant in variants:
-                if variant in label or label in variant:
-                    type_indices.append(idx)
-                    break
+                edu_labels.append(variant.lower().strip())
+        _edu_labels = edu_labels
+        _edu_levels = EDUCATION_LEVELS
+        _edu_embeddings = model.encode(edu_labels, convert_to_numpy=True, show_progress_bar=False)
 
-        if not type_indices:
-            continue
+        major_labels = []
+        for major, variants in MAJOR_PATTERNS.items():
+            for variant in variants:
+                major_labels.append(variant.lower().strip())
+        _major_labels = major_labels
+        _major_embeddings = model.encode(major_labels, convert_to_numpy=True, show_progress_bar=False)
 
-        type_embs = embeddings[type_indices]
-
-        for i, sent_emb in enumerate(text_embeddings):
-            similarities = type_embs @ sent_emb
-            max_sim = float(np.max(similarities))
-
-            if max_sim >= threshold:
-                for variant in variants:
-                    pattern = r'\b' + re.escape(variant.lower()) + r'(?:[,\s]|$|\.)'
-                    if re.search(pattern, sentences[i]):
-                        found.append({
-                            "type": pattern_type,
-                            "variant": variant,
-                            "sentence": sentences[i].strip(),
-                            "confidence": round(max_sim, 3),
-                        })
-                        break
-
-    return found
-
-
-def _keyword_extract(text: str, patterns: Dict[str, List[str]]) -> List[Dict[str, any]]:
-    text_lower = text.lower()
-    found = []
-
-    for pattern_type, variants in patterns.items():
-        for variant in variants:
-            pattern = r'\b' + re.escape(variant.lower()) + r'(?:[,\s]|$|\.)'
-            matches = list(re.finditer(pattern, text_lower))
-
-            for match in matches:
-                start = max(0, match.start() - 50)
-                end = min(len(text_lower), match.end() + 50)
-                context = text_lower[start:end].strip()
-
-                found.append({
-                    "type": pattern_type,
-                    "variant": variant,
-                    "context": context,
-                    "position": match.start(),
-                    "confidence": 1.0,
-                })
-
-    return found
-
-
-def _build_education_entry(level: str, major: str, qual_type: str, context: str) -> Dict[str, any]:
-    return {
-        "level": level,
-        "level_value": EDUCATION_LEVELS.get(level, 0),
-        "major": major,
-        "qualification_type": qual_type,
-        "full_qualification": f"{qual_type} in {major}" if major and qual_type else (qual_type or level),
-        "context": context,
-    }
+        qual_labels = []
+        for qual, variants in QUALIFICATION_TYPE_PATTERNS.items():
+            for variant in variants:
+                qual_labels.append(variant.lower().strip())
+        _qual_labels = qual_labels
+        _qual_embeddings = model.encode(qual_labels, convert_to_numpy=True, show_progress_bar=False)
 
 
 def extract_education(text: str) -> Dict[str, List[Dict[str, any]]]:
+    """
+    Proximity-aware education extraction.
+
+    For each sentence that contains an education level keyword, look for a
+    matching major and qualification type within the same sentence and its
+    immediate neighbours.  This prevents incorrectly assigning the same major
+    to every detected degree level.
+    """
     _build_education_semantic_db()
 
-    text_lower = text.lower()
-
-    keyword_levels = _keyword_extract(text_lower, EDUCATION_LEVEL_PATTERNS)
-    keyword_majors = _keyword_extract(text_lower, MAJOR_PATTERNS)
-    keyword_quals = _keyword_extract(text_lower, QUALIFICATION_TYPE_PATTERNS)
-
-    semantic_levels = _semantic_extract_component(
-        text_lower, EDUCATION_LEVEL_PATTERNS, _edu_embeddings, _edu_labels, 0.50
-    )
-    semantic_majors = _semantic_extract_component(
-        text_lower, MAJOR_PATTERNS, _major_embeddings, _major_labels, 0.55
-    )
-    semantic_quals = _semantic_extract_component(
-        text_lower, QUALIFICATION_TYPE_PATTERNS, _qual_embeddings, _qual_labels, 0.55
-    )
-
-    all_levels = {item["type"]: item for item in keyword_levels}
-    for item in semantic_levels:
-        if item["type"] not in all_levels or item["confidence"] > all_levels[item["type"]]["confidence"]:
-            all_levels[item["type"]] = {"type": item["type"], "variant": item["variant"], "confidence": item["confidence"]}
-
-    all_majors = {item["type"]: item for item in keyword_majors}
-    for item in semantic_majors:
-        if item["type"] not in all_majors or item["confidence"] > all_majors[item["type"]]["confidence"]:
-            all_majors[item["type"]] = {"type": item["type"], "variant": item["variant"], "confidence": item["confidence"]}
-
-    all_quals = {item["type"]: item for item in keyword_quals}
-    for item in semantic_quals:
-        if item["type"] not in all_quals or item["confidence"] > all_quals[item["type"]]["confidence"]:
-            all_quals[item["type"]] = {"type": item["type"], "variant": item["variant"], "confidence": item["confidence"]}
+    text_clean = text.replace("\r\n", "\n").replace("\r", "\n")
+    sentences = [s.strip() for s in re.split(r'[.!?\n]+', text_clean) if len(s.strip()) > 5]
 
     result: Dict[str, List[Dict[str, any]]] = {edu_type: [] for edu_type in EDUCATION_LEVEL_PATTERNS}
+    seen_entries: Set[Tuple[str, Optional[str]]] = set()
 
-    for level_name, level_data in all_levels.items():
-        major = None
-        if all_majors:
-            major_data = next(iter(all_majors.values()))
-            major = major_data["type"]
+    for i, sent in enumerate(sentences):
+        sent_lower = sent.lower()
 
-        qual_type = None
-        if all_quals:
-            qual_data = next(iter(all_quals.values()))
-            qual_type = qual_data["type"]
+        # Find the highest education level mentioned in this sentence
+        found_level: Optional[str] = None
+        for edu_type, variants in EDUCATION_LEVEL_PATTERNS.items():
+            for variant in variants:
+                if re.search(r'\b' + re.escape(variant) + r'\b', sent_lower):
+                    current_val = EDUCATION_LEVELS.get(found_level, 0) if found_level else 0
+                    if EDUCATION_LEVELS.get(edu_type, 0) > current_val:
+                        found_level = edu_type
+                    break
 
-        context = level_data.get("variant", level_name)
-        if all_majors:
-            major_data = next((m for m in all_majors.values() if m["confidence"] >= 0.8), None)
-            if major_data:
-                context += f" - {major_data['variant']}"
-                major = major_data["type"]
+        if found_level is None:
+            continue
+
+        # Build context window: current sentence + neighbours
+        window_sentences = sentences[max(0, i - 1): min(len(sentences), i + 2)]
+        context_window = " ".join(window_sentences).lower()
+
+        # Find major within the context window
+        found_major: Optional[str] = None
+        for major, variants in MAJOR_PATTERNS.items():
+            for variant in variants:
+                if re.search(r'\b' + re.escape(variant) + r'\b', context_window):
+                    found_major = major
+                    break
+            if found_major:
+                break
+
+        # Find qualification type within the current sentence
+        found_qual: Optional[str] = None
+        for qual_type, variants in QUALIFICATION_TYPE_PATTERNS.items():
+            for variant in variants:
+                if re.search(r'\b' + re.escape(variant) + r'\b', sent_lower):
+                    found_qual = qual_type
+                    break
+            if found_qual:
+                break
+
+        entry_key = (found_level, found_major)
+        if entry_key in seen_entries:
+            continue
+        seen_entries.add(entry_key)
+
+        full_qual = (
+            f"{found_qual} in {found_major}" if found_major and found_qual
+            else found_qual or found_level
+        )
 
         entry = {
-            "type": level_name,
-            "level": level_name,
-            "level_value": EDUCATION_LEVELS.get(level_name, 0),
-            "major": major,
-            "qualification_type": qual_type,
-            "confidence": level_data["confidence"],
-            "context": context,
+            "type": found_level,
+            "level": found_level,
+            "level_value": EDUCATION_LEVELS.get(found_level, 0),
+            "major": found_major,
+            "qualification_type": found_qual,
+            "full_qualification": full_qual,
+            "confidence": 1.0,
+            "context": sent.strip()[:200],
         }
-
-        result[level_name].append(entry)
+        result[found_level].append(entry)
 
     return {edu_type: items for edu_type, items in result.items() if items}
 
@@ -774,10 +943,9 @@ def compare_education(job_text: str, resume_text: str) -> Dict[str, any]:
     job_education = extract_education(job_text)
     resume_education = extract_education(resume_text)
 
-    job_flat = []
-    for edu_type, items in job_education.items():
-        for item in items:
-            job_flat.append({
+    def _flatten(edu_dict):
+        return [
+            {
                 "type": edu_type,
                 "level": item.get("level"),
                 "level_value": item.get("level_value"),
@@ -785,46 +953,40 @@ def compare_education(job_text: str, resume_text: str) -> Dict[str, any]:
                 "qualification_type": item.get("qualification_type"),
                 "context": item.get("context"),
                 "confidence": item.get("confidence"),
-            })
+            }
+            for edu_type, items in edu_dict.items()
+            for item in items
+        ]
 
-    resume_flat = []
-    for edu_type, items in resume_education.items():
-        for item in items:
-            resume_flat.append({
-                "type": edu_type,
-                "level": item.get("level"),
-                "level_value": item.get("level_value"),
-                "major": item.get("major"),
-                "qualification_type": item.get("qualification_type"),
-                "context": item.get("context"),
-                "confidence": item.get("confidence"),
-            })
+    job_flat = _flatten(job_education)
+    resume_flat = _flatten(resume_education)
 
     requirement_check = meets_requirement(job_education, resume_education)
-
-    job_highest = get_highest_education(job_education)
-    resume_highest = get_highest_education(resume_education)
 
     return {
         "job_education": job_flat,
         "resume_education": resume_flat,
-        "job_highest": job_highest,
-        "resume_highest": resume_highest,
+        "job_highest": get_highest_education(job_education),
+        "resume_highest": get_highest_education(resume_education),
         "meets_requirement": requirement_check["meets_requirement"],
         "meets_requirement_message": requirement_check["message"],
-        "job_majors": list(set(item.get("major") for item in job_flat if item.get("major"))),
-        "resume_majors": list(set(item.get("major") for item in resume_flat if item.get("major"))),
-        "matching_majors": list(set(
-            m for m in (set(item.get("major") for item in job_flat if item.get("major")))
-            if m in set(item.get("major") for item in resume_flat if item.get("major"))
-        )),
+        "job_majors": list({item.get("major") for item in job_flat if item.get("major")}),
+        "resume_majors": list({item.get("major") for item in resume_flat if item.get("major")}),
+        "matching_majors": list(
+            {item.get("major") for item in job_flat if item.get("major")}
+            & {item.get("major") for item in resume_flat if item.get("major")}
+        ),
     }
 
 
+# ---------------------------------------------------------------------------
+# Experience extraction
+# ---------------------------------------------------------------------------
+
 EXPERIENCE_PATTERNS: Dict[str, List[str]] = {
     "Entry Level (0-1 years)": [
-        "0-1 years", "0 to 1 year", "1 year", "0 years", "fresh graduate", "fresh graduate",
-        "new graduate", "no experience required", "entry level", "junior", "fresher",
+        "0-1 years", "0 to 1 year", "1 year", "0 years", "fresh graduate",
+        "new graduate", "no experience required", "entry level", "fresher",
     ],
     "Junior (1-2 years)": [
         "1-2 years", "1 to 2 years", "2 years", "1 year minimum",
@@ -852,7 +1014,7 @@ EXPERIENCE_PATTERNS: Dict[str, List[str]] = {
     ],
     "Expert (10+ years)": [
         "10+ years", "10 years plus", "more than 10 years", "10-12 years",
-        "expert", "expert level", "senior expert", "staff", "staff engineer",
+        "expert", "expert level", "staff engineer",
         "10 years minimum", "10+", "ten plus years",
     ],
 }
@@ -867,22 +1029,137 @@ EXPERIENCE_LEVELS: Dict[str, int] = {
     "Expert (10+ years)": 7,
 }
 
+_MONTHS_MAP = {
+    'jan': 1, 'january': 1, 'feb': 2, 'february': 2,
+    'mar': 3, 'march': 3, 'apr': 4, 'april': 4,
+    'may': 5, 'jun': 6, 'june': 6, 'jul': 7, 'july': 7,
+    'aug': 8, 'august': 8, 'sep': 9, 'september': 9,
+    'oct': 10, 'october': 10, 'nov': 11, 'november': 11,
+    'dec': 12, 'december': 12,
+}
+
+_MONTH_RE = r'(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)'
+_SEP_RE = r'\s*[-–—]\s*'
+_PRESENT_RE = r'(?:present|current|now|till date|to date)'
+
+
+def _years_from_level(years: float) -> str:
+    if years >= 10:
+        return "Expert (10+ years)"
+    if years >= 7:
+        return "Principal (7-10 years)"
+    if years >= 5:
+        return "Lead (5-7 years)"
+    if years >= 3:
+        return "Senior (3-5 years)"
+    if years >= 2:
+        return "Mid-Level (2-3 years)"
+    if years >= 1:
+        return "Junior (1-2 years)"
+    return "Entry Level (0-1 years)"
+
+
+def _extract_experience_from_dates(text: str) -> Optional[Dict[str, any]]:
+    """
+    Calculate total work experience from employment date ranges found in the text.
+
+    Handles formats such as:
+      • "Jan 2019 – Mar 2023"
+      • "2019 – 2023"
+      • "March 2020 - Present"
+      • "2018 to present"
+    """
+    current_year = datetime.datetime.now().year
+    current_month = datetime.datetime.now().month
+
+    text_lower = text.lower()
+    total_months = 0
+    ranges_found: List[str] = []
+    seen_starts: Set[Tuple[int, int]] = set()
+
+    # Pattern 1: "Mon YYYY – Mon YYYY" or "Mon YYYY – Present"
+    full_pattern = re.compile(
+        rf'({_MONTH_RE})\s+(\d{{4}})\s*[-–—]\s*'
+        rf'(?:({_MONTH_RE})\s+(\d{{4}})|({_PRESENT_RE}))',
+        re.IGNORECASE,
+    )
+    for m in full_pattern.finditer(text_lower):
+        start_mon = _MONTHS_MAP.get(m.group(1)[:3].lower(), 1)
+        start_yr = int(m.group(2))
+        if m.group(5):  # present
+            end_mon, end_yr = current_month, current_year
+        else:
+            end_mon = _MONTHS_MAP.get(m.group(3)[:3].lower(), 12)
+            end_yr = int(m.group(4))
+
+        if not (1970 <= start_yr <= current_year and start_yr <= end_yr <= current_year + 1):
+            continue
+        key = (start_yr, start_mon)
+        if key in seen_starts:
+            continue
+        seen_starts.add(key)
+        diff = (end_yr - start_yr) * 12 + (end_mon - start_mon)
+        total_months += max(0, diff)
+        ranges_found.append(m.group(0))
+
+    # Pattern 2: "YYYY – YYYY"
+    year_range_re = re.compile(r'\b(\d{4})\s*[-–—]\s*(\d{4})\b')
+    for m in year_range_re.finditer(text_lower):
+        sy, ey = int(m.group(1)), int(m.group(2))
+        if not (1970 <= sy <= current_year and sy < ey <= current_year + 1):
+            continue
+        if ey - sy > 50:
+            continue
+        key = (sy, 1)
+        if key in seen_starts:
+            continue
+        seen_starts.add(key)
+        total_months += (ey - sy) * 12
+        ranges_found.append(m.group(0))
+
+    # Pattern 3: "YYYY – Present" / "YYYY to present"
+    year_present_re = re.compile(
+        rf'\b(\d{{4}})\s*(?:[-–—]|to)\s*{_PRESENT_RE}',
+        re.IGNORECASE,
+    )
+    for m in year_present_re.finditer(text_lower):
+        sy = int(m.group(1))
+        if not (1970 <= sy <= current_year):
+            continue
+        key = (sy, 1)
+        if key in seen_starts:
+            continue
+        seen_starts.add(key)
+        total_months += (current_year - sy) * 12
+        ranges_found.append(m.group(0))
+
+    if not ranges_found or total_months <= 0:
+        return None
+
+    total_years = round(total_months / 12, 1)
+    type_name = _years_from_level(total_years)
+
+    return {
+        "required_years": total_years,
+        "years_text": f"{total_years} years (from date ranges)",
+        "level": type_name,
+        "level_value": EXPERIENCE_LEVELS[type_name],
+        "context": f"Date ranges found: {', '.join(ranges_found[:5])}",
+    }
+
 
 def _extract_experience_years(text: str) -> Dict[str, List[Dict[str, any]]]:
     text_lower = text.lower()
 
     title_words = {'senior', 'junior', 'lead', 'principal', 'staff', 'manager', 'director', 'head', 'chief', 'intern', 'associate'}
     context_exclude_patterns = [
-        r'\bsenior\s+(software|software engineer|software developer|engineer|developer|analyst|designer|architect|consultant|manager|lead|director)',
-        r'\bjunior\s+(software|software engineer|software developer|engineer|developer|analyst|designer)',
-        r'\blead\s+(software|software engineer|software developer|engineer|developer|analyst|designer|manager)',
-        r'\bprincipal\s+(software|software engineer|software developer|engineer|developer|architect|analyst)',
-        r'\bstaff\s+(software|software engineer|software developer|engineer|developer|analyst)',
-        r'\bsenior\s+(lecturer|professor|teacher|academic|faculty|researcher|research associate)',
-        r'\bjunior\s+(lecturer|professor|teacher|academic|faculty|researcher)',
-        r'\bsenior\s+(advisor|counselor|consultant|specialist|coordinator)',
+        r'\bsenior\s+(software|engineer|developer|analyst|designer|architect|consultant|manager)',
+        r'\bjunior\s+(software|engineer|developer|analyst|designer)',
+        r'\blead\s+(software|engineer|developer|analyst|designer|manager)',
+        r'\bprincipal\s+(software|engineer|developer|architect|analyst)',
+        r'\bstaff\s+(software|engineer|developer|analyst)',
+        r'\bsenior\s+(lecturer|professor|teacher|researcher)',
         r'\breferences?\s*[:|-]',
-        r'\breference\s+(name|contact|person)',
     ]
 
     found: Dict[str, List[Dict[str, any]]] = {exp_type: [] for exp_type in EXPERIENCE_PATTERNS}
@@ -890,17 +1167,14 @@ def _extract_experience_years(text: str) -> Dict[str, List[Dict[str, any]]]:
     for exp_type, variants in EXPERIENCE_PATTERNS.items():
         for variant in variants:
             pattern = r'\b' + re.escape(variant.lower()) + r'\b'
-            matches = list(re.finditer(pattern, text_lower))
+            for match in re.finditer(pattern, text_lower):
+                ctx_start = max(0, match.start() - 80)
+                ctx_end = min(len(text_lower), match.end() + 80)
+                context = text_lower[ctx_start:ctx_end].strip()
 
-            for match in matches:
-                start_pos = match.start()
-                end_pos = match.end()
-                context_start = max(0, start_pos - 80)
-                context_end = min(len(text_lower), end_pos + 80)
-                context = text_lower[context_start:context_end].strip()
-
-                is_title_context = any(re.search(exclude_pat, context, re.IGNORECASE) for exclude_pat in context_exclude_patterns)
-
+                is_title_context = any(
+                    re.search(ep, context, re.IGNORECASE) for ep in context_exclude_patterns
+                )
                 if variant.lower() in title_words and is_title_context:
                     continue
 
@@ -929,46 +1203,26 @@ def _extract_years_numbers(text: str) -> List[Dict[str, any]]:
     ]
 
     found = []
-    seen_years = set()
+    seen_years: Set[int] = set()
 
     for pattern, match_type in years_patterns:
-        matches = list(re.finditer(pattern, text_lower))
-        for match in matches:
-            if match_type == 'range_years':
-                years = int(match.group(2))
-            else:
-                years = int(match.group(1))
-
+        for match in re.finditer(pattern, text_lower):
+            years = int(match.group(2)) if match_type == 'range_years' else int(match.group(1))
             if years in seen_years:
                 continue
             seen_years.add(years)
 
-            type_name = "Entry Level (0-1 years)"
-            if years >= 10:
-                type_name = "Expert (10+ years)"
-            elif years >= 7:
-                type_name = "Principal (7-10 years)"
-            elif years >= 5:
-                type_name = "Lead (5-7 years)"
-            elif years >= 3:
-                type_name = "Senior (3-5 years)"
-            elif years >= 2:
-                type_name = "Mid-Level (2-3 years)"
-            elif years >= 1:
-                type_name = "Junior (1-2 years)"
-            else:
-                type_name = "Entry Level (0-1 years)"
+            type_name = _years_from_level(years)
 
-            start = max(0, match.start() - 50)
-            end = min(len(text_lower), match.end() + 50)
-            context = text_lower[start:end].strip()
+            ctx_start = max(0, match.start() - 50)
+            ctx_end = min(len(text_lower), match.end() + 50)
 
             found.append({
                 "type": type_name,
                 "years": years,
                 "level": EXPERIENCE_LEVELS[type_name],
                 "variant": match.group(0),
-                "context": context,
+                "context": text_lower[ctx_start:ctx_end].strip(),
                 "confidence": 0.98,
             })
 
@@ -976,27 +1230,16 @@ def _extract_years_numbers(text: str) -> List[Dict[str, any]]:
 
 
 def extract_experience_requirement(text: str) -> Dict[str, any]:
-    pattern_results = _extract_experience_years(text)
+    """Extract experience requirement from a job description (keyword/number based)."""
     number_results = _extract_years_numbers(text)
 
-    all_results = {exp_type: [] for exp_type in EXPERIENCE_PATTERNS}
-
-    for exp_type, items in pattern_results.items():
-        for item in items:
-            all_results[exp_type].append(item)
-
-    for item in number_results:
-        exp_type = item["type"]
-        if item not in all_results[exp_type]:
-            all_results[exp_type].append(item)
-
+    # Pick the highest explicitly stated numeric requirement
     numeric_years = 0
     numeric_result = None
-
     for item in number_results:
-        years_val = item.get("years")
+        years_val = item.get("years", 0)
         try:
-            years = int(years_val) if years_val else 0
+            years = int(years_val)
         except (ValueError, TypeError):
             years = 0
         if years > numeric_years:
@@ -1005,33 +1248,21 @@ def extract_experience_requirement(text: str) -> Dict[str, any]:
 
     if numeric_result:
         return {
-            "required_years": numeric_result.get("years"),
-            "years_text": numeric_result.get("type"),
-            "level": numeric_result.get("type"),
-            "level_value": numeric_result.get("level"),
-            "context": numeric_result.get("context"),
+            "required_years": numeric_result["years"],
+            "years_text": numeric_result["type"],
+            "level": numeric_result["type"],
+            "level_value": numeric_result["level"],
+            "context": numeric_result["context"],
         }
 
+    # Fall back to pattern matching (handles words like "senior", "junior")
+    pattern_results = _extract_experience_years(text)
     highest = None
     highest_level = 0
-    highest_years = 0
-
-    for exp_type, items in all_results.items():
+    for exp_type, items in pattern_results.items():
         for item in items:
-            level = item.get("level", 0)
-            years_val = item.get("years")
-
-            try:
-                years = int(years_val) if years_val else 0
-            except (ValueError, TypeError):
-                years = 0
-
-            if years > highest_years:
-                highest_years = years
-                highest_level = level
-                highest = item
-            elif years == highest_years and level > highest_level:
-                highest_level = level
+            if item.get("level", 0) > highest_level:
+                highest_level = item["level"]
                 highest = item
 
     if not highest:
@@ -1052,60 +1283,155 @@ def extract_experience_requirement(text: str) -> Dict[str, any]:
     }
 
 
+def extract_experience_from_resume(text: str) -> Dict[str, any]:
+    """
+    Extract total experience from a resume.
+
+    Prefers date-range calculation (e.g. '2019-2023') over keyword matching,
+    because resumes contain work history dates rather than phrases like
+    '5+ years of experience'.
+    """
+    date_result = _extract_experience_from_dates(text)
+    if date_result:
+        return date_result
+
+    # Fallback: look for explicit year statements
+    return extract_experience_requirement(text)
+
+
 def compare_experience(job_text: str, resume_text: str) -> Dict[str, any]:
     job_exp = extract_experience_requirement(job_text)
-    resume_exp = extract_experience_requirement(resume_text)
+    resume_exp = extract_experience_from_resume(resume_text)
 
-    job_years = job_exp.get("level_value") or 0
-    resume_years = resume_exp.get("level_value") or 0
+    job_level = job_exp.get("level_value") or 0
+    resume_level = resume_exp.get("level_value") or 0
 
-    meets = resume_years >= job_years if job_exp.get("level_value") else True
+    meets = resume_level >= job_level if job_exp.get("level_value") else True
 
     return {
         "job_experience": job_exp,
         "resume_experience": resume_exp,
         "meets_requirement": meets,
-        "meets_message": "Resume meets experience requirement" if meets else ("Resume experience is below requirement" if job_exp.get("level_value") else "No experience requirement found"),
+        "meets_message": (
+            "Resume meets experience requirement" if meets
+            else ("Resume experience is below requirement" if job_exp.get("level_value")
+                  else "No experience requirement found")
+        ),
     }
 
 
+# ---------------------------------------------------------------------------
+# Responsibility & experience duty matching
+# ---------------------------------------------------------------------------
+
 RESPONSIBILITY_ANCHORS = [
-    "responsibilities", "duties", "job duties", "key responsibilities",
-    "role responsibilities", "daily responsibilities", "what you will do",
-    "expected to", "will be responsible for", "main responsibilities",
-    "core duties", "primary duties", "position responsibilities",
+    "key responsibilities and engineering duties",
+    "what you will build, develop and deploy",
+    "design and implement software systems and APIs",
+    "write clean, testable code and conduct code reviews",
+    "collaborate with product and engineering teams",
+    "maintain and improve existing software and infrastructure",
+    "troubleshoot, debug and optimise application performance",
+    "will be responsible for delivering software features",
+    "expected to architect and build scalable backend services",
+    "core engineering duties and technical deliverables",
 ]
 
 EXPERIENCE_ANCHORS = [
+    "software engineering experience and professional background",
+    "developed and deployed production applications",
+    "designed and implemented backend services and REST APIs",
+    "led engineering projects and mentored developers",
+    "built and maintained cloud infrastructure on aws or azure",
+    "worked on distributed systems and microservices",
+    "implemented ci/cd pipelines and automated deployments",
+    "contributed to open source or personal software projects",
+    "previous roles as software engineer or developer",
+    "full stack or backend development work history",
+]
+
+_RESP_SECTION_KEYWORDS = [
+    "responsibilities", "duties", "key responsibilities", "role responsibilities",
+    "what you will do", "what you'll do", "your role", "job duties",
+    "core responsibilities", "primary responsibilities", "the role",
+    "you will", "you'll be", "in this role",
+]
+
+_EXP_SECTION_KEYWORDS = [
     "work experience", "professional experience", "employment history",
-    "work history", "career", "previous positions", "past positions",
-    "professional background", "industry experience", "years of experience",
-    "responsible for", "managed", "led", "developed", "designed", "implemented",
-    "collaborated", "coordinated", "organized", "oversaw", "delivered",
+    "work history", "career history", "experience",
+    "engineering experience", "technical experience",
+]
+
+_SECTION_STOP_WORDS = [
+    "education", "skills", "certifications", "projects", "certificates",
+    "publications", "awards", "languages", "summary", "objective",
+    "references", "volunteer", "training", "courses", "interests",
+    "hobbies", "achievements", "activities", "qualifications",
+    "benefits", "about us", "about the company", "compensation",
 ]
 
 
-def _get_sbert_model():
-    global _model
-    if _model is None:
-        with _lock:
-            if _model is None:
-                from sentence_transformers import SentenceTransformer
-                _model = SentenceTransformer("all-mpnet-base-v2")
-    return _model
+def _extract_section_lines(
+    text: str,
+    section_keywords: List[str],
+    stop_words: Optional[List[str]] = None,
+    min_len: int = 20,
+) -> List[str]:
+    """
+    Extract lines that belong to the section identified by *section_keywords*.
+    Stops when a line matching any *stop_words* is encountered.
+    Falls back to all lines if the section header is not found.
+    """
+    if stop_words is None:
+        stop_words = _SECTION_STOP_WORDS
 
-
-def _extract_responsibilities(text: str) -> List[str]:
-    model = _get_sbert_model()
     text_clean = text.replace("\r\n", "\n").replace("\r", "\n")
     lines = [l.strip() for l in text_clean.split("\n") if l.strip()]
 
-    sentences = []
+    section_lines: List[str] = []
+    in_section = False
+
+    for line in lines:
+        line_lower = line.lower()
+
+        if not in_section:
+            for kw in section_keywords:
+                if kw in line_lower and len(line) < 80:
+                    in_section = True
+                    break
+            continue
+
+        # Check for a new section header
+        if any(sw in line_lower and len(line) < 60 for sw in stop_words):
+            break
+
+        if len(line) >= min_len:
+            section_lines.append(line)
+
+    if not section_lines:
+        # Fallback: return all non-trivial lines
+        section_lines = [l.strip() for l in lines if len(l.strip()) >= min_len]
+
+    return section_lines
+
+
+def _lines_to_sentences(lines: List[str], min_len: int = 20) -> List[str]:
+    sentences: List[str] = []
     for line in lines:
         parts = re.split(r'(?<=[.!?])\s+', line)
         for part in parts:
-            if len(part.strip()) > 20:
-                sentences.append(part.strip())
+            part = part.strip()
+            if len(part) >= min_len:
+                sentences.append(part)
+    return sentences
+
+
+def _extract_responsibilities(text: str) -> List[str]:
+    model = _get_model()
+
+    lines = _extract_section_lines(text, _RESP_SECTION_KEYWORDS)
+    sentences = _lines_to_sentences(lines)
 
     if not sentences:
         return []
@@ -1115,52 +1441,25 @@ def _extract_responsibilities(text: str) -> List[str]:
 
     a_norm = anchor_embeddings / (np.linalg.norm(anchor_embeddings, axis=1, keepdims=True) + 1e-10)
     s_norm = sentence_embeddings / (np.linalg.norm(sentence_embeddings, axis=1, keepdims=True) + 1e-10)
+    max_sims = (a_norm @ s_norm.T).max(axis=0)
 
-    similarities = a_norm @ s_norm.T
-    max_sims = similarities.max(axis=0)
-
-    responsibilities = []
-    seen_resp = set()
+    seen: Set[str] = set()
+    responsibilities: List[str] = []
     for i, sentence in enumerate(sentences):
         if max_sims[i] > 0.35:
-            norm_sent = sentence.lower().strip()
-            if norm_sent not in seen_resp:
-                seen_resp.add(norm_sent)
+            norm = sentence.lower().strip()
+            if norm not in seen:
+                seen.add(norm)
                 responsibilities.append(sentence)
 
     return responsibilities
 
 
 def _extract_professional_experience(text: str) -> List[Dict[str, any]]:
-    model = _get_sbert_model()
-    text_clean = text.lower()
+    model = _get_model()
 
-    lines = []
-    current_role = "Professional Experience"
-    in_history = False
-
-    lines_list = text_clean.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-
-    for line in lines_list:
-        line = line.strip()
-        if not line:
-            continue
-        if any(phrase in line.lower() for phrase in ["experience", "employment", "work history", "career", "previous", "position"]):
-            in_history = True
-            current_role = line[:100]
-        elif in_history and len(line) > 30:
-            lines.append(line)
-
-    if not lines:
-        text_parts = text_clean.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-        lines = [l.strip() for l in text_parts if len(l.strip()) > 30]
-
-    sentences = []
-    for line in lines:
-        parts = re.split(r'(?<=[.!?])\s+', line)
-        for part in parts:
-            if len(part.strip()) > 20:
-                sentences.append(part.strip())
+    lines = _extract_section_lines(text, _EXP_SECTION_KEYWORDS)
+    sentences = _lines_to_sentences(lines)
 
     if not sentences:
         return []
@@ -1170,23 +1469,21 @@ def _extract_professional_experience(text: str) -> List[Dict[str, any]]:
 
     a_norm = anchor_embeddings / (np.linalg.norm(anchor_embeddings, axis=1, keepdims=True) + 1e-10)
     s_norm = sentence_embeddings / (np.linalg.norm(sentence_embeddings, axis=1, keepdims=True) + 1e-10)
+    max_sims = (a_norm @ s_norm.T).max(axis=0)
 
-    similarities = a_norm @ s_norm.T
-    max_sims = similarities.max(axis=0)
-
-    experience_items = []
-    seen_exp = set()
+    seen: Set[str] = set()
+    items: List[Dict[str, any]] = []
     for i, sentence in enumerate(sentences):
         if max_sims[i] > 0.30:
-            norm_sent = sentence.lower().strip()
-            if norm_sent not in seen_exp:
-                seen_exp.add(norm_sent)
-                experience_items.append({
+            norm = sentence.lower().strip()
+            if norm not in seen:
+                seen.add(norm)
+                items.append({
                     "duty": sentence,
                     "confidence": round(float(max_sims[i]), 3),
                 })
 
-    return experience_items
+    return items
 
 
 def _semantic_compare_duties(
@@ -1196,12 +1493,12 @@ def _semantic_compare_duties(
     if not responsibilities or not experience_items:
         return {
             "matched_duties": [],
-            "unmatched_responsibilities": responsibilities if responsibilities else [],
+            "unmatched_responsibilities": responsibilities or [],
             "explanation": "Could not extract duties or experience to compare",
             "score": 0,
         }
 
-    model = _get_sbert_model()
+    model = _get_model()
 
     resp_embeddings = model.encode(responsibilities, convert_to_numpy=True, show_progress_bar=False)
     exp_texts = [item["duty"] for item in experience_items]
@@ -1209,55 +1506,65 @@ def _semantic_compare_duties(
 
     r_norm = resp_embeddings / (np.linalg.norm(resp_embeddings, axis=1, keepdims=True) + 1e-10)
     e_norm = exp_embeddings / (np.linalg.norm(exp_embeddings, axis=1, keepdims=True) + 1e-10)
-
     similarity_matrix = r_norm @ e_norm.T
 
-    matched = []
-    unmatched = []
-    matched_exp_indices = set()
-    matched_resp_indices = set()
+    matched: List[Dict[str, any]] = []
+    unmatched: List[str] = []
+    matched_resp: Set[int] = set()
+    matched_exp: Set[int] = set()
 
-    for i, resp in enumerate(responsibilities):
-        if i in matched_resp_indices:
+    # Sort responsibilities by their best available match (greedy, highest first)
+    best_per_resp = [
+        (i, int(np.argmax(similarity_matrix[i])), float(np.max(similarity_matrix[i])))
+        for i in range(len(responsibilities))
+    ]
+    best_per_resp.sort(key=lambda x: x[2], reverse=True)
+
+    for i, best_j, best_sim in best_per_resp:
+        if i in matched_resp:
             continue
-            
-        best_j = -1
-        best_sim = 0.0
-        for j in range(len(exp_texts)):
-            if j in matched_exp_indices:
-                continue
-            if similarity_matrix[i, j] > best_sim:
-                best_sim = similarity_matrix[i, j]
-                best_j = j
-
-        if best_j >= 0 and best_sim > 0.50:
+        if best_j in matched_exp:
+            # Find next best available
+            order = np.argsort(similarity_matrix[i])[::-1]
+            found = False
+            for j in order:
+                if j not in matched_exp and similarity_matrix[i, j] > 0.50:
+                    matched.append({
+                        "job_duty": responsibilities[i],
+                        "experience_duty": exp_texts[j],
+                        "similarity": round(float(similarity_matrix[i, j]), 3),
+                    })
+                    matched_resp.add(i)
+                    matched_exp.add(j)
+                    found = True
+                    break
+            if not found:
+                unmatched.append(responsibilities[i])
+        elif best_sim > 0.50:
             matched.append({
-                "job_duty": resp,
+                "job_duty": responsibilities[i],
                 "experience_duty": exp_texts[best_j],
-                "similarity": round(float(best_sim), 3),
+                "similarity": round(best_sim, 3),
             })
-            matched_exp_indices.add(best_j)
-            matched_resp_indices.add(i)
+            matched_resp.add(i)
+            matched_exp.add(best_j)
         else:
-            unmatched.append(resp)
+            unmatched.append(responsibilities[i])
 
     score = round(len(matched) / len(responsibilities) * 100, 1) if responsibilities else 0
 
-    explanation_parts = []
     if score >= 80:
-        explanation_parts.append(f"Excellent match ({score}%): Resume demonstrates strong alignment with most job responsibilities through past roles.")
+        explanation = f"Excellent match ({score}%): Resume demonstrates strong alignment with most job responsibilities."
     elif score >= 60:
-        explanation_parts.append(f"Good match ({score}%): Resume covers majority of expected duties with relevant experience patterns.")
+        explanation = f"Good match ({score}%): Resume covers majority of expected duties."
     elif score >= 40:
-        explanation_parts.append(f"Partial match ({score}%): Resume shows some relevant experience but missing key responsibilities.")
+        explanation = f"Partial match ({score}%): Resume shows some relevant experience but missing key responsibilities."
     else:
-        explanation_parts.append(f"Low match ({score}%): Limited alignment found between job duties and resume experience.")
+        explanation = f"Low match ({score}%): Limited alignment found between job duties and resume experience."
 
     if matched:
-        sample_matched = matched[:2]
-        explanation_parts.append("Key aligned duties: " + "; ".join([m["job_duty"][:50] for m in sample_matched]))
-
-    explanation = " ".join(explanation_parts)
+        sample = "; ".join(m["job_duty"][:50] for m in matched[:2])
+        explanation += f" Key aligned duties: {sample}"
 
     return {
         "matched_duties": matched,
@@ -1267,29 +1574,90 @@ def _semantic_compare_duties(
     }
 
 
-def compare_responsibilities(job_text: str, resume_text: str) -> Dict[str, any]:
+def compare_responsibilities(
+    job_text: str,
+    resume_text: str,
+    projects: Optional[List[Dict[str, any]]] = None,
+) -> Dict[str, any]:
+    """
+    Match job responsibilities against resume experience and — when provided —
+    project descriptions.
+
+    Projects are treated as practical evidence of duties performed.  Any job
+    responsibility not covered by work experience is re-matched against project
+    descriptions, giving candidates who demonstrate skills through projects
+    (academic, personal, open-source) fair credit.
+
+    Returns both experience-only ``score`` and ``effective_score`` (experience +
+    projects) so the UI can show the full picture.
+    """
     job_responsibilities = _extract_responsibilities(job_text)
     resume_experience = _extract_professional_experience(resume_text)
 
-    comparison = _semantic_compare_duties(job_responsibilities, resume_experience)
+    # --- Pass 1: match against work experience ---
+    exp_comparison = _semantic_compare_duties(job_responsibilities, resume_experience)
+    matched_via_exp = exp_comparison["matched_duties"]
+    unmatched_after_exp: List[str] = exp_comparison["unmatched_responsibilities"]
+
+    # --- Pass 2: match remaining duties against project descriptions ---
+    matched_via_proj: List[Dict[str, any]] = []
+    still_unmatched = unmatched_after_exp
+
+    if unmatched_after_exp and projects:
+        project_items = [
+            {
+                "duty": f"{p.get('project_title', 'Project')}: {p.get('description', '')}",
+                "confidence": p.get("confidence", 0.5),
+            }
+            for p in projects
+            if p.get("description", "").strip()
+        ]
+        if project_items:
+            proj_comparison = _semantic_compare_duties(unmatched_after_exp, project_items)
+            for m in proj_comparison["matched_duties"]:
+                matched_via_proj.append({
+                    "job_duty": m["job_duty"],
+                    "project_contribution": m["experience_duty"],
+                    "similarity": m["similarity"],
+                })
+            still_unmatched = proj_comparison["unmatched_responsibilities"]
+
+    total = len(job_responsibilities)
+    exp_score = exp_comparison["score"]
+    effective_score = round((len(matched_via_exp) + len(matched_via_proj)) / total * 100, 1) if total else 0
+
+    # Build explanation using the effective score
+    if effective_score >= 80:
+        explanation = f"Excellent match ({effective_score}%): Strong coverage across work experience and projects."
+    elif effective_score >= 60:
+        explanation = f"Good match ({effective_score}%): Most responsibilities covered through experience and/or projects."
+    elif effective_score >= 40:
+        explanation = f"Partial match ({effective_score}%): Some alignment found; projects supplement work experience."
+    else:
+        explanation = f"Low match ({effective_score}%): Limited alignment with job responsibilities."
+
+    if matched_via_exp:
+        sample = "; ".join(m["job_duty"][:50] for m in matched_via_exp[:2])
+        explanation += f" Directly matched: {sample}"
+    if matched_via_proj:
+        proj_sample = "; ".join(m["job_duty"][:50] for m in matched_via_proj[:1])
+        explanation += f" Project evidence: {proj_sample}"
 
     return {
         "job_responsibilities": job_responsibilities[:10],
         "resume_experience_duties": resume_experience[:10],
-        "matched_duties": comparison["matched_duties"],
-        "unmatched_responsibilities": comparison["unmatched_responsibilities"],
-        "score": comparison["score"],
-        "explanation": comparison["explanation"],
+        "matched_duties": matched_via_exp,
+        "matched_via_projects": matched_via_proj,
+        "unmatched_responsibilities": still_unmatched,
+        "score": exp_score,
+        "effective_score": effective_score,
+        "explanation": explanation,
     }
 
 
 # ---------------------------------------------------------------------------
 # Certification patterns & extraction
 # ---------------------------------------------------------------------------
-
-_cert_embeddings: Optional[np.ndarray] = None
-_cert_labels: Optional[List[str]] = None
-_cert_variants: Optional[Dict[str, List[str]]] = None
 
 CERTIFICATION_PATTERNS: Dict[str, List[str]] = {
     "AWS Certified Solutions Architect": [
@@ -1316,7 +1684,7 @@ CERTIFICATION_PATTERNS: Dict[str, List[str]] = {
         "google cloud data engineer", "gcp data engineer", "google cloud professional data engineer",
     ],
     "Google Cloud Associate Cloud Engineer": [
-        "google cloud associate engineer", "gcp associate cloud engineer", "google associate cloud engineer",
+        "google cloud associate engineer", "gcp associate cloud engineer",
     ],
     "Microsoft Azure Fundamentals": [
         "azure fundamentals", "az-900", "microsoft azure fundamentals",
@@ -1331,28 +1699,28 @@ CERTIFICATION_PATTERNS: Dict[str, List[str]] = {
         "pmp", "project management professional", "pmp certification", "pmp certified",
     ],
     "Certified ScrumMaster": [
-        "certified scrummaster", "csm", "scrummaster certification", "certified scrum master",
+        "certified scrummaster", "csm", "certified scrum master",
     ],
     "CISSP": [
-        "cissp", "certified information systems security professional", "cissp certification",
+        "cissp", "certified information systems security professional",
     ],
     "CompTIA Security+": [
-        "comptia security+", "security+", "comptia security plus", "security plus certification",
+        "comptia security+", "security+", "comptia security plus",
     ],
     "CompTIA Network+": [
-        "comptia network+", "network+", "comptia network plus",
+        "comptia network+", "network+",
     ],
     "Cisco CCNA": [
-        "ccna", "cisco ccna", "ccna certification", "cisco certified network associate",
+        "ccna", "cisco ccna", "cisco certified network associate",
     ],
     "Cisco CCNP": [
-        "ccnp", "cisco ccnp", "ccnp certification", "cisco certified network professional",
+        "ccnp", "cisco ccnp", "cisco certified network professional",
     ],
     "Certified Kubernetes Administrator": [
-        "certified kubernetes administrator", "cka", "kubernetes administrator certification",
+        "certified kubernetes administrator", "cka",
     ],
     "Certified Kubernetes Application Developer": [
-        "certified kubernetes application developer", "ckad", "kubernetes application developer",
+        "certified kubernetes application developer", "ckad",
     ],
     "Terraform Associate": [
         "terraform associate", "hashicorp terraform", "terraform certification",
@@ -1370,219 +1738,119 @@ CERTIFICATION_PATTERNS: Dict[str, List[str]] = {
         "oracle certified professional", "ocp", "oracle certification",
     ],
     "Salesforce Certified Administrator": [
-        "salesforce administrator", "salesforce certified administrator", "salesforce admin certification",
+        "salesforce administrator", "salesforce certified administrator",
     ],
     "Tableau Certified Data Analyst": [
-        "tableau certified data analyst", "tableau certification", "tableau certified",
+        "tableau certified data analyst", "tableau certification",
     ],
     "Google Analytics Certification": [
-        "google analytics certification", "gaiq", "google analytics individual qualification",
+        "google analytics certification", "gaiq",
     ],
     "PowerBI Data Analyst": [
-        "powerbi data analyst", "pl-300", "microsoft power bi certification", "power bi certified",
+        "powerbi data analyst", "pl-300", "power bi certified",
     ],
     "MongoDB University": [
-        "mongodb university", "mongodb certification course", "m101js", "m001", "m103",
-        "mongodb developer course", "mongodb for node.js developers",
+        "mongodb university", "mongodb certification course",
     ],
-    "Certified Embedded Systems Developer": [
-        "certified embedded systems developer", "cesd",
-        "embedded systems developer certification", "embedded systems developer",
+    "TensorFlow Developer Certificate": [
+        "tensorflow developer certificate", "google tensorflow certificate",
     ],
-    "FreeRTOS Certification": [
-        "freertos fundamentals", "freertos certification", "freertos course",
-        "freertos self-paced",
-    ],
-    "Rust Programming Certification": [
-        "rust programming certification", "rust certification", "rust developer certification", "rust embedded",
-        "rust working group", "rust language certification",
+    "Deep Learning Specialization": [
+        "deep learning specialization", "deeplearning.ai", "andrew ng deep learning",
     ],
     "edX Certificate": [
-        "edx course", "edx certificate", "edx certification", "edx self-paced",
-        "edx verified certificate",
+        "edx course", "edx certificate", "edx certification",
     ],
     "Coursera Certificate": [
         "coursera course", "coursera certificate", "coursera specialization",
         "coursera professional certificate",
     ],
     "Udemy Certificate": [
-        "udemy course", "udemy certificate", "udemy certification",
+        "udemy course", "udemy certificate",
     ],
-    "Pluralsight Skill IQ": [
-        "pluralsight course", "pluralsight skill iq", "pluralsight certification",
-        "pluralsight certificate",
-    ],
-    "LinkedIn Learning Certificate": [
-        "linkedin learning course", "linkedin learning certificate",
-    ],
-    "Embedded Linux Certification": [
-        "embedded linux certification", "embedded linux course",
-        "embedded linux developer certification",
-    ],
-    "ARM Certification": [
-        "arm certification", "arm embedded certification", "arm microcontroller certification",
-        "arm architecture certification",
-    ],
-    "Microcontroller Programming": [
-        "microcontroller programming certification", "microcontroller certification", "mcu programming certification",
-        "microcontroller course",
-    ],
-    "Real-Time Operating Systems": [
-        "rtos certification", "real-time operating systems certification",
-        "real time operating system course",
-    ],
-    "Embedded C Programming": [
-        "embedded c certification", "embedded c programming certification",
-    ],
-    "Computer Architecture Certification": [
-        "computer architecture course", "computer architecture certification",
-    ],
-    "FPGA Design Certification": [
-        "fpga design certification", "fpga design course", "fpga certification",
-    ],
-    "IoT Certification": [
-        "internet of things certification", "iot certification", "iot course",
-        "internet of things course",
-    ],
-    "VHDL Certification": [
-        "vhdl certification", "vhdl course", "vhdl programming certification",
-    ],
-    "Verilog Certification": [
-        "verilog certification", "verilog course", "verilog programming certification",
-    ],
-    "DSP Certification": [
-        "digital signal processing certification", "dsp certification", "dsp course",
-    ],
-    "PCB Design Certification": [
-        "pcb design certification", "pcb design course",
-    ],
-    "CAD Certification": [
-        "cad certification", "autocad certification", "solidworks certification",
-        "cad course",
-    ],
-    "MATLAB Certification": [
-        "matlab certification", "matlab course", "matlab programming certification",
-    ],
-    "LabVIEW Certification": [
-        "labview certification", "labview course", "labview programming certification",
-    ],
-    "ROS Certification": [
-        "ros certification", "robot operating system certification", "ros course",
-    ],
-    "QNX Certification": [
-        "qnx certification", "qnx course", "qnx neutrino certification",
-    ],
-    "Zephyr RTOS Certification": [
-        "zephyr rtos certification", "zephyr certification", "zephyr course",
+    "Certified Embedded Systems Developer": [
+        "certified embedded systems developer", "cesd",
     ],
     "NVIDIA CUDA Certification": [
-        "nvidia cuda certification", "cuda programming certification", "cuda certification", "cuda course",
+        "nvidia cuda certification", "cuda programming certification", "cuda certification",
     ],
-    "OpenCL Certification": [
-        "opencl certification", "opencl programming certification", "opencl course",
+    "IoT Certification": [
+        "internet of things certification", "iot certification",
+    ],
+    "MATLAB Certification": [
+        "matlab certification", "matlab course",
+    ],
+    "ROS Certification": [
+        "ros certification", "robot operating system certification",
     ],
 }
-
-# CERT_TRIGGER_KEYWORDS = {
-#     "certified", "certification", "certificate", "credentials",
-#     "license", "licensure", "accreditation", "qualification",
-#     "pmp", "itil",
-#     "ceh", "cissp", "cism", "crisc",
-#     "toefl", "ielts",
-#     "six sigma",
-# }
 
 CERTIFICATION_ANCHORS = [
     "certifications", "certificates", "credentials", "professional certifications",
     "technical certifications", "certified", "certification in", "certification:",
-    "professional certificate", "qualifications", "licenses", "accreditations",
+    "professional certificate", "qualifications", "licenses",
 ]
 
 
 def _build_certification_database():
     global _cert_embeddings, _cert_labels, _cert_variants
+
     if _cert_embeddings is not None:
         return
-    model = _get_model()
-    cert_labels = []
-    cert_variants_map = {}
-    for cert_name, variants in CERTIFICATION_PATTERNS.items():
-        for variant in variants:
-            cert_labels.append(variant.lower().strip())
-            if cert_name not in cert_variants_map:
-                cert_variants_map[cert_name] = []
-            cert_variants_map[cert_name].append(variant.lower().strip())
-    _cert_labels = cert_labels
-    _cert_variants = cert_variants_map
-    _cert_embeddings = model.encode(cert_labels, convert_to_numpy=True, show_progress_bar=False)
+
+    with _db_lock:
+        if _cert_embeddings is not None:
+            return
+
+        model = _get_model()
+        cert_labels = []
+        cert_variants_map: Dict[str, List[str]] = {}
+
+        for cert_name, variants in CERTIFICATION_PATTERNS.items():
+            for variant in variants:
+                lv = variant.lower().strip()
+                cert_labels.append(lv)
+                if cert_name not in cert_variants_map:
+                    cert_variants_map[cert_name] = []
+                cert_variants_map[cert_name].append(lv)
+
+        _cert_labels = cert_labels
+        _cert_variants = cert_variants_map
+        _cert_embeddings = model.encode(cert_labels, convert_to_numpy=True, show_progress_bar=False)
 
 
 def extract_certifications(text: str) -> List[Dict[str, any]]:
     _build_certification_database()
     model = _get_model()
 
-    text_clean = text.replace("\r\n", "\n").replace("\r", "\n")
-    lines = [l.strip() for l in text_clean.split("\n") if l.strip()]
-
     cert_section_keywords = [
         "certifications", "certificates", "credentials", "certification",
         "professional certifications", "technical certifications",
-        "certification:", "certifications:",
     ]
-
     section_header_words = {
         "certifications", "certificates", "credentials", "certification",
         "professional", "technical", "licenses", "accreditations",
     }
 
-    cert_section_lines = []
-    in_cert_section = False
-    cert_section_started = False
-    trigger_line_skipped = False
+    cert_section_lines = _extract_section_lines(text, cert_section_keywords, min_len=3)
 
-    for line in lines:
-        line_lower = line.lower()
-        if not cert_section_started:
-            for kw in cert_section_keywords:
-                if kw in line_lower and len(line) < 50:
-                    in_cert_section = True
-                    cert_section_started = True
-                    trigger_line_skipped = True
-                    break
-            if not in_cert_section:
-                continue
-        if in_cert_section:
-            is_new = False
-            for oh in ["education", "experience", "skills", "projects", "work experience",
-                        "employment", "summary", "objective", "references", "volunteer",
-                        "publications", "awards"]:
-                if oh in line_lower and len(line) < 50:
-                    is_new = True
-                    break
-            if is_new:
-                break
-            if trigger_line_skipped:
-                trigger_line_skipped = False
-                continue
-            cert_section_lines.append(line)
+    target_lines = [l.strip() for l in cert_section_lines if l.strip()]
 
-    target_text = "\n".join(cert_section_lines) if cert_section_lines else text_clean
-    target_lines = [l.strip() for l in target_text.split("\n") if l.strip()]
-
-    candidate_entries = []
+    candidate_entries: List[str] = []
     for line in target_lines:
         line_clean = re.sub(r'^[\s•\-*–—]+', '', line).strip()
         if not line_clean or len(line_clean) < 3:
             continue
-        words = set(w.strip().lower() for w in re.split(r'[\s,;:]+', line_clean) if w.strip())
+        words = {w.strip().lower() for w in re.split(r'[\s,;:]+', line_clean) if w.strip()}
         if words and words.issubset(section_header_words):
             continue
         if ',' in line_clean:
-            parts = [p.strip() for p in line_clean.split(',') if len(p.strip()) > 3]
-            for p in parts:
-                p_words = set(w.strip().lower() for w in re.split(r'[\s,;:]+', p) if w.strip())
-                if p_words and not p_words.issubset(section_header_words):
-                    candidate_entries.append(p)
+            for p in line_clean.split(','):
+                p = p.strip()
+                if len(p) > 3:
+                    pw = {w.strip().lower() for w in re.split(r'[\s,;:]+', p) if w.strip()}
+                    if not pw.issubset(section_header_words):
+                        candidate_entries.append(p)
         else:
             candidate_entries.append(line_clean)
 
@@ -1596,8 +1864,8 @@ def extract_certifications(text: str) -> List[Dict[str, any]]:
     e_norm = entry_embeddings / (np.linalg.norm(entry_embeddings, axis=1, keepdims=True) + 1e-10)
     sim_matrix = c_norm @ e_norm.T
 
-    found = []
-    seen = set()
+    found: List[Dict[str, any]] = []
+    seen: Set[str] = set()
 
     for i, entry in enumerate(candidate_entries):
         entry_lower = entry.lower()
@@ -1623,12 +1891,17 @@ def extract_certifications(text: str) -> List[Dict[str, any]]:
             })
             continue
 
-        max_sim = float(sim_matrix[:, i].max()) if sim_matrix.ndim > 1 else float(sim_matrix[i].max())
+        col = sim_matrix[:, i]
+        max_sim = float(col.max())
         if max_sim < 0.50:
             continue
 
-        best_idx = int(np.argmax(sim_matrix[:, i])) if sim_matrix.ndim > 1 else int(np.argmax(sim_matrix[i]))
-        best_name = next((cn for cn, vs in _cert_variants.items() if _cert_labels[best_idx] in vs), None)
+        best_idx = int(np.argmax(col))
+        best_label = _cert_labels[best_idx]
+        best_name = next(
+            (cn for cn, vs in _cert_variants.items() if best_label in vs),
+            None,
+        )
 
         if best_name and best_name not in seen:
             seen.add(best_name)
@@ -1673,7 +1946,7 @@ def extract_projects(text: str) -> List[Dict[str, any]]:
     }
 
     trigger_line_skipped = False
-    raw_project_lines = []
+    raw_project_lines: List[str] = []
     in_project_section = False
     project_started = False
 
@@ -1693,8 +1966,6 @@ def extract_projects(text: str) -> List[Dict[str, any]]:
                 trigger_line_skipped = False
                 continue
 
-            is_new = False
-
             known_section_headers = [
                 "education", "experience", "skills", "certifications",
                 "employment", "summary", "objective", "references",
@@ -1705,30 +1976,34 @@ def extract_projects(text: str) -> List[Dict[str, any]]:
                 "training", "courses", "patents", "activities",
                 "extracurricular", "community",
             ]
-            for oh in known_section_headers:
-                if oh in line_lower and len(line) < 50:
-                    is_new = True
-                    break
+            if any(oh in line_lower and len(line) < 50 for oh in known_section_headers):
+                break
 
-            if not is_new and len(line) < 50 and line[0].isupper() and not line.startswith(('•', '-', '*', '–', '—')):
+            if (
+                len(line) < 50
+                and line[0].isupper()
+                and not line.startswith(('•', '-', '*', '–', '—'))
+            ):
                 first_word = line_lower.split()[0].rstrip(':;,.') if line_lower.split() else ''
-                not_action = first_word not in {'developed', 'built', 'created', 'designed', 'implemented', 'architected', 'engineered', 'led', 'managed'}
-                not_tech = not any(line_lower.startswith(kw + ':') for kw in ['stack', 'tech', 'tool', 'language', 'framework'])
-                has_section_word = any(sw in line_lower for sw in ['and', 'additional', 'language', 'interest', 'hobby', 'activity', 'volunteer', 'award', 'honor', 'achievement', 'member', 'affiliation', 'training', 'course', 'patent'])
+                not_action = first_word not in {
+                    'developed', 'built', 'created', 'designed', 'implemented',
+                    'architected', 'engineered', 'led', 'managed',
+                }
                 is_single_section_word = (
                     len(line_lower.split()) == 1
-                    and line_lower.rstrip('.') in {'education', 'experience', 'skills', 'certifications',
-                                                    'publications', 'awards', 'languages', 'interests', 'hobbies',
-                                                    'leadership', 'volunteer', 'activities', 'references', 'summary',
-                                                    'objective', 'training', 'courses', 'patents', 'memberships',
-                                                    'affiliations', 'achievements', 'honors'}
+                    and line_lower.rstrip('.') in {
+                        'education', 'experience', 'skills', 'certifications',
+                        'publications', 'awards', 'languages', 'interests',
+                        'hobbies', 'leadership', 'volunteer', 'activities',
+                        'references', 'summary', 'objective', 'training',
+                        'courses', 'patents', 'memberships', 'affiliations',
+                        'achievements', 'honors',
+                    }
                 )
-                if not_action and not_tech and (has_section_word or is_single_section_word):
-                    is_new = True
+                if not_action and is_single_section_word:
+                    break
 
-            if is_new:
-                break
-            words = set(w.strip().lower() for w in re.split(r'[\s,;:]+', line) if w.strip())
+            words = {w.strip().lower() for w in re.split(r'[\s,;:]+', line) if w.strip()}
             if words and words.issubset(project_section_header_words):
                 continue
             raw_project_lines.append(line)
@@ -1736,103 +2011,94 @@ def extract_projects(text: str) -> List[Dict[str, any]]:
     if not raw_project_lines:
         return []
 
-    project_blocks = []
-    current_title = None
-    current_bullets = []
+    project_blocks: List[Dict[str, str]] = []
+    current_title: Optional[str] = None
+    current_bullets: List[str] = []
 
     description_verbs = {
         "developed", "designed", "built", "created", "implemented", "architected",
         "engineered", "launched", "delivered", "led", "managed", "spearheaded",
         "migrated", "integrated", "automated", "configured", "deployed",
-        "optimized", "refactored", "built", "wrote", "coded", "programmed",
+        "optimized", "refactored", "wrote", "coded", "programmed",
     }
-
-    def is_bullet_line(l):
-        return bool(re.match(r'^[\s•\-*–—>]+', l))
-
-    def is_action_line(l):
-        first_word = l.lower().split()[0].rstrip(',;:') if l.split() else ''
-        return first_word in description_verbs or first_word.endswith('ed')
-
-    def is_tech_line(l):
-        lower = l.lower()
-        return any(lower.startswith(kw) and ':' in lower for kw in ["stack", "tech", "technologies", "tools", "language", "framework", "database", "library", "api", "sdk", "platform", "environment"])
-
     common_start_words = {
         "the", "a", "an", "some", "this", "that", "these", "those",
-        "our", "my", "their", "his", "her", "its",
-        "for", "with", "using", "through", "via",
+        "our", "my", "for", "with", "using", "through", "via",
         "built", "developed", "designed", "created", "implemented",
     }
 
-    def is_title_line(l, prev_line, has_existing_projects):
-        if is_bullet_line(l):
+    def is_bullet_line(l: str) -> bool:
+        return bool(re.match(r'^[\s•\-*–—>]+', l))
+
+    def is_action_line(l: str) -> bool:
+        first = l.lower().split()[0].rstrip(',;:') if l.split() else ''
+        return first in description_verbs or first.endswith('ed')
+
+    def is_tech_line(l: str) -> bool:
+        lower = l.lower()
+        return any(
+            lower.startswith(kw) and ':' in lower
+            for kw in ["stack", "tech", "technologies", "tools", "language",
+                       "framework", "database", "library", "api", "platform"]
+        )
+
+    def is_title_line(l: str, prev: Optional[str], has_existing: bool) -> bool:
+        if is_bullet_line(l) or is_action_line(l) or is_tech_line(l):
             return False
-        if is_action_line(l):
-            return False
-        if is_tech_line(l):
-            return False
-        if l.lower().startswith(('built a', 'developed a', 'created a', 'designed a', 'implemented a')):
+        if l.lower().startswith(('built a', 'developed a', 'created a', 'designed a')):
             return False
         if len(l) > 100:
             return False
-        if prev_line is not None and is_bullet_line(prev_line):
+        if prev is not None and is_bullet_line(prev):
             return False
-
-        if has_existing_projects:
+        if has_existing:
             first_word = l.split()[0].lower().rstrip(':;,.') if l.split() else ''
             has_separator = bool(re.search(r'[—\-–|:]\s', l))
-            has_proper_case = l[0].isupper() and not first_word in common_start_words
-            is_short = len(l) <= 60
-            return has_separator or (is_short and has_proper_case)
-
+            has_proper_case = l[0].isupper() and first_word not in common_start_words
+            return has_separator or (len(l) <= 60 and has_proper_case)
         return True
 
-    prev = None
+    prev_line: Optional[str] = None
     for line in raw_project_lines:
         line_clean = re.sub(r'^[\s•\-*–—>]+', '', line).strip()
         if not line_clean:
-            prev = line
+            prev_line = line
             continue
 
-        has_existing = current_title is not None
-        if is_title_line(line, prev, has_existing):
+        if is_title_line(line, prev_line, current_title is not None):
             if current_title is not None:
-                desc = " ".join(current_bullets) if current_bullets else current_title
                 project_blocks.append({
                     "title": current_title,
-                    "description": desc,
+                    "description": " ".join(current_bullets) if current_bullets else current_title,
                 })
             current_title = line_clean
             current_bullets = []
         else:
             current_bullets.append(line_clean)
 
-        prev = line
+        prev_line = line
 
     if current_title is not None:
-        desc = " ".join(current_bullets) if current_bullets else current_title
         project_blocks.append({
             "title": current_title,
-            "description": desc,
+            "description": " ".join(current_bullets) if current_bullets else current_title,
         })
 
     verb_embeddings = model.encode(PROJECT_ACTION_VERBS, convert_to_numpy=True, show_progress_bar=False)
+    v_norm = verb_embeddings / (np.linalg.norm(verb_embeddings, axis=1, keepdims=True) + 1e-10)
 
-    projects = []
-    seen_titles = set()
+    projects: List[Dict[str, any]] = []
+    seen_titles: Set[str] = set()
 
     for block in project_blocks:
-        title_lower = block["title"].lower().strip()[:60]
-        if title_lower in seen_titles:
+        title_key = block["title"].lower().strip()[:60]
+        if title_key in seen_titles:
             continue
-        seen_titles.add(title_lower)
+        seen_titles.add(title_key)
 
-        line_emb = model.encode([block["description"]], convert_to_numpy=True, show_progress_bar=False)
-        v_norm = verb_embeddings / (np.linalg.norm(verb_embeddings, axis=1, keepdims=True) + 1e-10)
-        l_norm = line_emb / (np.linalg.norm(line_emb, axis=1, keepdims=True) + 1e-10)
-        verb_sims = v_norm @ l_norm.T
-        max_sim = float(verb_sims.max())
+        desc_emb = model.encode([block["description"]], convert_to_numpy=True, show_progress_bar=False)
+        l_norm = desc_emb / (np.linalg.norm(desc_emb, axis=1, keepdims=True) + 1e-10)
+        max_sim = float((v_norm @ l_norm.T).max())
 
         projects.append({
             "project_title": block["title"],
@@ -1844,7 +2110,7 @@ def extract_projects(text: str) -> List[Dict[str, any]]:
 
 
 # ---------------------------------------------------------------------------
-# Semantic comparison with evidence sentences
+# Semantic comparison helpers (certifications & projects vs job)
 # ---------------------------------------------------------------------------
 
 def _semantic_compare_with_evidence(
@@ -1854,10 +2120,6 @@ def _semantic_compare_with_evidence(
     item_desc_key: str,
     threshold: float = 0.40,
 ) -> Dict[str, any]:
-    """
-    Compare resume items (certifications/projects) against job description sentences.
-    Returns matched evidence with similarity scores and a final match score.
-    """
     if not resume_items or not job_sentences:
         return {
             "matched_evidence": [],
@@ -1877,236 +2139,275 @@ def _semantic_compare_with_evidence(
     j_norm = job_embeddings / (np.linalg.norm(job_embeddings, axis=1, keepdims=True) + 1e-10)
     sim_matrix = r_norm @ j_norm.T
 
-    matched_evidence = []
-    unmatched_items = []
-    matched_indices = set()
+    matched_evidence: List[Dict[str, any]] = []
+    unmatched_items: List[str] = []
 
     for i, item in enumerate(resume_items):
-        best_j = -1
-        best_sim = 0.0
-        for j in range(len(job_sentences)):
-            sim = float(sim_matrix[i, j])
-            if sim > best_sim:
-                best_sim = sim
-                best_j = j
+        best_j = int(np.argmax(sim_matrix[i]))
+        best_sim = float(sim_matrix[i, best_j])
 
-        if best_j >= 0 and best_sim >= threshold:
+        if best_sim >= threshold:
             matched_evidence.append({
                 "resume_item": item[item_desc_key],
                 "resume_item_name": item[item_name_key],
                 "matching_job_sentence": job_sentences[best_j],
                 "similarity_score": round(best_sim, 3),
             })
-            matched_indices.add(i)
         else:
             unmatched_items.append(item[item_name_key])
 
     matched_count = len(matched_evidence)
     total = len(resume_items)
-    match_score = round(matched_count / total * 100, 1) if total else 0
 
     return {
         "matched_evidence": matched_evidence,
         "unmatched_items": unmatched_items,
-        "match_score": match_score,
+        "match_score": round(matched_count / total * 100, 1) if total else 0,
         "total_items": total,
         "matched_count": matched_count,
     }
 
 
-# ---------------------------------------------------------------------------
-# Certification comparison with job description
-# ---------------------------------------------------------------------------
+def compare_certifications_with_job(
+    resume_text: str,
+    job_text: str,
+    extracted_certs: Optional[List[Dict[str, any]]] = None,
+) -> Dict[str, any]:
+    """
+    Match resume certifications against job skills and qualification requirements.
 
-def compare_certifications_with_job(resume_text: str, job_text: str) -> Dict[str, any]:
-    resume_certs = extract_certifications(resume_text)
+    ``extracted_certs`` may be passed in from an earlier extraction call to
+    avoid re-parsing the resume text.
+
+    New: ``qualification_matches`` — certifications that directly satisfy a
+    stated qualification/credential requirement in the JD (e.g. "AWS
+    certification required").
+    """
+    resume_certs = extracted_certs if extracted_certs is not None else extract_certifications(resume_text)
     if not resume_certs:
         return {
             "certifications": [],
             "certification_skills_map": [],
+            "qualification_matches": [],
             "overall_match_score": 0,
             "total_certifications": 0,
             "summary": "No certifications found in the resume.",
         }
 
-    job_skills_data = extract_skills_with_scores(job_text)
-    job_all_skill_names = []
-    for category, skills in job_skills_data.items():
-        for skill_name in skills:
-            job_all_skill_names.append(skill_name)
-
-    if not job_all_skill_names:
-        return {
-            "certifications": [
-                {
-                    "certification": c["certification"],
-                    "confidence": c["confidence"],
-                    "context": c["context"],
-                }
-                for c in resume_certs
-            ],
-            "certification_skills_map": [],
-            "overall_match_score": 100,
-            "total_certifications": len(resume_certs),
-            "summary": f"Found {len(resume_certs)} certification(s) in resume. No specific skills extracted from job description.",
-        }
-
     model = _get_model()
     cert_names = [c["certification"] for c in resume_certs]
     cert_embeddings = model.encode(cert_names, convert_to_numpy=True, show_progress_bar=False)
-    skill_embeddings = model.encode(job_all_skill_names, convert_to_numpy=True, show_progress_bar=False)
-
     c_norm = cert_embeddings / (np.linalg.norm(cert_embeddings, axis=1, keepdims=True) + 1e-10)
-    s_norm = skill_embeddings / (np.linalg.norm(skill_embeddings, axis=1, keepdims=True) + 1e-10)
-    sim_matrix = c_norm @ s_norm.T
 
-    certification_skills_map = []
-    all_related_skills = set()
+    # --- Skill relevance mapping ---
+    job_skills_data = extract_skills_with_scores(job_text)
+    job_all_skill_names = [
+        skill_name
+        for category_skills in job_skills_data.values()
+        for skill_name in category_skills
+    ]
+
+    certification_skills_map: List[Dict[str, any]] = []
     total_skills_count = len(job_all_skill_names)
 
-    for i, cert in enumerate(resume_certs):
-        skill_matches = []
-        for j, skill_name in enumerate(job_all_skill_names):
-            sim = float(sim_matrix[i, j])
-            if sim >= 0.30:
-                skill_matches.append({
-                    "skill": skill_name,
-                    "similarity_score": round(sim, 3),
+    if job_all_skill_names:
+        skill_embeddings = model.encode(job_all_skill_names, convert_to_numpy=True, show_progress_bar=False)
+        s_norm = skill_embeddings / (np.linalg.norm(skill_embeddings, axis=1, keepdims=True) + 1e-10)
+        skill_sim = c_norm @ s_norm.T   # (n_certs, n_skills)
+
+        for i, cert in enumerate(resume_certs):
+            skill_matches = [
+                {"skill": job_all_skill_names[j], "similarity_score": round(float(skill_sim[i, j]), 3)}
+                for j in range(len(job_all_skill_names))
+                if skill_sim[i, j] >= 0.30
+            ]
+            skill_matches.sort(key=lambda x: x["similarity_score"], reverse=True)
+            certification_skills_map.append({
+                "certification": cert["certification"],
+                "confidence": cert["confidence"],
+                "context": cert["context"],
+                "related_skills": skill_matches,
+                "related_skills_count": len(skill_matches),
+                "match_rate": round(len(skill_matches) / total_skills_count * 100, 1) if total_skills_count else 0,
+                "has_relevance": len(skill_matches) > 0,
+            })
+    else:
+        for cert in resume_certs:
+            certification_skills_map.append({
+                "certification": cert["certification"],
+                "confidence": cert["confidence"],
+                "context": cert["context"],
+                "related_skills": [],
+                "related_skills_count": 0,
+                "match_rate": 0,
+                "has_relevance": False,
+            })
+
+    # --- Qualification requirement matching ---
+    # Find JD sentences that mention credential/certification requirements and
+    # check if any resume cert satisfies them.
+    _qual_trigger = re.compile(
+        r'\b(certif|credential|qualif|accredit|licensed|prefer|require)\w*\b', re.I
+    )
+    job_sentences = [
+        s.strip() for s in re.split(r'[.\n]', job_text)
+        if len(s.strip()) > 15 and _qual_trigger.search(s)
+    ]
+
+    qualification_matches: List[Dict[str, any]] = []
+    if job_sentences:
+        qual_embeddings = model.encode(job_sentences, convert_to_numpy=True, show_progress_bar=False)
+        q_norm = qual_embeddings / (np.linalg.norm(qual_embeddings, axis=1, keepdims=True) + 1e-10)
+        qual_sim = c_norm @ q_norm.T   # (n_certs, n_qual_sentences)
+
+        matched_qual_idx: Set[int] = set()
+        for i, cert in enumerate(resume_certs):
+            best_j = int(np.argmax(qual_sim[i]))
+            best_sim = float(qual_sim[i, best_j])
+            if best_sim >= 0.42 and best_j not in matched_qual_idx:
+                matched_qual_idx.add(best_j)
+                qualification_matches.append({
+                    "certification": cert["certification"],
+                    "matched_requirement": job_sentences[best_j],
+                    "similarity": round(best_sim, 3),
                 })
-                all_related_skills.add(skill_name)
-
-        skill_matches.sort(key=lambda x: x["similarity_score"], reverse=True)
-
-        cert_skills_count = len(skill_matches)
-        cert_match_rate = round(cert_skills_count / total_skills_count * 100, 1) if total_skills_count else 0
-
-        cert_entry = {
-            "certification": cert["certification"],
-            "confidence": cert["confidence"],
-            "context": cert["context"],
-            "related_skills": skill_matches,
-            "related_skills_count": cert_skills_count,
-            "match_rate": cert_match_rate,
-            "has_relevance": len(skill_matches) > 0,
-        }
-        certification_skills_map.append(cert_entry)
 
     high_relevance = sum(1 for c in certification_skills_map if c["has_relevance"])
     overall_match_score = round(high_relevance / len(resume_certs) * 100, 1) if resume_certs else 0
 
     return {
         "certifications": [
-            {
-                "certification": c["certification"],
-                "confidence": c["confidence"],
-                "context": c["context"],
-            }
+            {"certification": c["certification"], "confidence": c["confidence"], "context": c["context"]}
             for c in resume_certs
         ],
         "certification_skills_map": certification_skills_map,
+        "qualification_matches": qualification_matches,
         "overall_match_score": overall_match_score,
         "total_certifications": len(resume_certs),
         "relevant_certifications": high_relevance,
         "summary": (
-            f"Found {len(resume_certs)} certification(s) in resume. "
-            f"{high_relevance} certification(s) relate to skills sought by the job "
-            f"({overall_match_score}% overall relevance)."
+            f"Found {len(resume_certs)} certification(s). "
+            f"{high_relevance} relate to skills sought by the job ({overall_match_score}% relevance)."
+            + (f" {len(qualification_matches)} satisfy stated qualification requirement(s)."
+               if qualification_matches else "")
         ),
     }
 
 
-# ---------------------------------------------------------------------------
-# Projects comparison with job description
-# ---------------------------------------------------------------------------
+def compare_projects_with_job(
+    resume_text: str,
+    job_text: str,
+    extracted_projects: Optional[List[Dict[str, any]]] = None,
+) -> Dict[str, any]:
+    """
+    Match resume projects against job skills and responsibilities.
 
-def compare_projects_with_job(resume_text: str, job_text: str) -> Dict[str, any]:
-    resume_projects = extract_projects(resume_text)
+    ``extracted_projects`` may be passed in from an earlier call to avoid
+    re-parsing the resume text.
+
+    New: ``responsibility_matches`` — project descriptions that directly
+    address a stated job responsibility, demonstrating practical experience
+    beyond the skills section.
+    """
+    resume_projects = extracted_projects if extracted_projects is not None else extract_projects(resume_text)
     if not resume_projects:
         return {
             "projects": [],
             "projects_skills_map": [],
+            "responsibility_matches": [],
             "overall_match_score": 0,
             "total_projects": 0,
             "summary": "No projects found in the resume.",
         }
 
-    job_skills_data = extract_skills_with_scores(job_text)
-    job_all_skill_names = []
-    for category, skills in job_skills_data.items():
-        for skill_name in skills:
-            job_all_skill_names.append(skill_name)
-
-    if not job_all_skill_names:
-        return {
-            "projects": [
-                {
-                    "project_title": p["project_title"],
-                    "confidence": p["confidence"],
-                    "description": p["description"],
-                }
-                for p in resume_projects
-            ],
-            "projects_skills_map": [],
-            "overall_match_score": 100,
-            "total_projects": len(resume_projects),
-            "summary": f"Found {len(resume_projects)} project(s) in resume. No specific skills extracted from job description.",
-        }
-
     model = _get_model()
-    project_desc = [p["description"] for p in resume_projects]
-    project_embeddings = model.encode(project_desc, convert_to_numpy=True, show_progress_bar=False)
-    skill_embeddings = model.encode(job_all_skill_names, convert_to_numpy=True, show_progress_bar=False)
-
+    project_descs = [p["description"] for p in resume_projects]
+    project_embeddings = model.encode(project_descs, convert_to_numpy=True, show_progress_bar=False)
     p_norm = project_embeddings / (np.linalg.norm(project_embeddings, axis=1, keepdims=True) + 1e-10)
-    s_norm = skill_embeddings / (np.linalg.norm(skill_embeddings, axis=1, keepdims=True) + 1e-10)
-    sim_matrix = p_norm @ s_norm.T
 
-    projects_skills_map = []
-    all_related_skills = set()
+    # --- Skill relevance mapping ---
+    job_skills_data = extract_skills_with_scores(job_text)
+    job_all_skill_names = [
+        skill_name
+        for category_skills in job_skills_data.values()
+        for skill_name in category_skills
+    ]
+
+    projects_skills_map: List[Dict[str, any]] = []
     total_skills_count = len(job_all_skill_names)
 
-    for i, proj in enumerate(resume_projects):
-        skill_matches = []
-        for j, skill_name in enumerate(job_all_skill_names):
-            sim = float(sim_matrix[i, j])
-            if sim >= 0.25:
-                skill_matches.append({
-                    "skill": skill_name,
-                    "similarity_score": round(sim, 3),
+    if job_all_skill_names:
+        skill_embeddings = model.encode(job_all_skill_names, convert_to_numpy=True, show_progress_bar=False)
+        s_norm = skill_embeddings / (np.linalg.norm(skill_embeddings, axis=1, keepdims=True) + 1e-10)
+        skill_sim = p_norm @ s_norm.T  # (n_projects, n_skills)
+
+        for i, proj in enumerate(resume_projects):
+            skill_matches = [
+                {"skill": job_all_skill_names[j], "similarity_score": round(float(skill_sim[i, j]), 3)}
+                for j in range(len(job_all_skill_names))
+                if skill_sim[i, j] >= 0.25
+            ]
+            skill_matches.sort(key=lambda x: x["similarity_score"], reverse=True)
+            projects_skills_map.append({
+                "project_title": proj["project_title"],
+                "confidence": proj["confidence"],
+                "description": proj["description"],
+                "related_skills": [s["skill"] for s in skill_matches],
+                "related_skills_count": len(skill_matches),
+                "has_relevance": len(skill_matches) > 0,
+            })
+    else:
+        for proj in resume_projects:
+            projects_skills_map.append({
+                "project_title": proj["project_title"],
+                "confidence": proj["confidence"],
+                "description": proj["description"],
+                "related_skills": [],
+                "related_skills_count": 0,
+                "has_relevance": False,
+            })
+
+    # --- Responsibility matching ---
+    # Compare project descriptions against job responsibility sentences to
+    # show which job duties the candidate has demonstrated through projects.
+    job_resp_sentences = _extract_section_lines(job_text, _RESP_SECTION_KEYWORDS, min_len=20)
+    job_resp_sentences = _lines_to_sentences(job_resp_sentences, min_len=20)
+
+    responsibility_matches: List[Dict[str, any]] = []
+    if job_resp_sentences:
+        resp_embeddings = model.encode(job_resp_sentences, convert_to_numpy=True, show_progress_bar=False)
+        r_norm = resp_embeddings / (np.linalg.norm(resp_embeddings, axis=1, keepdims=True) + 1e-10)
+        resp_sim = p_norm @ r_norm.T   # (n_projects, n_resp)
+
+        matched_resp_idx: Set[int] = set()
+        for i, proj in enumerate(resume_projects):
+            best_j = int(np.argmax(resp_sim[i]))
+            best_sim = float(resp_sim[i, best_j])
+            if best_sim >= 0.45 and best_j not in matched_resp_idx:
+                matched_resp_idx.add(best_j)
+                responsibility_matches.append({
+                    "project_title": proj["project_title"],
+                    "matched_responsibility": job_resp_sentences[best_j],
+                    "similarity": round(best_sim, 3),
                 })
-                all_related_skills.add(skill_name)
-
-        skill_matches.sort(key=lambda x: x["similarity_score"], reverse=True)
-
-        proj_entry = {
-            "project_title": proj["project_title"],
-            "confidence": proj["confidence"],
-            "description": proj["description"],
-            "related_skills": [s["skill"] for s in skill_matches],
-            "related_skills_count": len(skill_matches),
-            "has_relevance": len(skill_matches) > 0,
-        }
-        projects_skills_map.append(proj_entry)
 
     high_relevance = sum(1 for p in projects_skills_map if p["has_relevance"])
     overall_match_score = round(high_relevance / len(resume_projects) * 100, 1) if resume_projects else 0
 
     return {
         "projects": [
-            {
-                "project_title": p["project_title"],
-                "confidence": p["confidence"],
-                "description": p["description"],
-            }
+            {"project_title": p["project_title"], "confidence": p["confidence"], "description": p["description"]}
             for p in resume_projects
         ],
         "projects_skills_map": projects_skills_map,
+        "responsibility_matches": responsibility_matches,
         "overall_match_score": overall_match_score,
         "total_projects": len(resume_projects),
         "relevant_projects": high_relevance,
         "summary": (
-            f"Found {len(resume_projects)} project(s) in resume. "
-            f"{high_relevance} project(s) relate to skills sought by the job "
-            f"({overall_match_score}% overall relevance)."
+            f"Found {len(resume_projects)} project(s). "
+            f"{high_relevance} relate to skills sought by the job ({overall_match_score}% relevance)."
+            + (f" {len(responsibility_matches)} project(s) directly address job responsibilities."
+               if responsibility_matches else "")
         ),
     }
