@@ -28,61 +28,63 @@ defineProps({
 .card {
   background: #fff;
   border-radius: 16px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  border: 1.5px solid #e2e8f0;
   overflow: hidden;
-  transition: transform 0.25s, box-shadow 0.25s;
+  transition: transform 0.22s cubic-bezier(0.4,0,0.2,1), box-shadow 0.22s, border-color 0.22s;
 }
 
 .card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  transform: translateY(-3px);
+  border-color: #c7d2fe;
+  box-shadow: 0 10px 28px rgba(79,70,229,0.1);
 }
 
 .card-header {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 1.1rem 1.25rem;
+  padding: 1rem 1.25rem;
   border-left: 4px solid v-bind(color);
-  background: linear-gradient(90deg, rgba(0, 0, 0, 0.02) 0%, transparent 100%);
+  background: linear-gradient(90deg, rgba(79,70,229,0.03) 0%, transparent 100%);
 }
 
 .card-icon {
-  font-size: 1.35rem;
+  font-size: 1.25rem;
 }
 
 .card-title {
   flex: 1;
   margin: 0;
-  font-size: 1.05rem;
-  font-weight: 700;
-  color: #1e1b4b;
+  font-size: 0.975rem;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.01em;
 }
 
 .badge {
   background: v-bind(color);
   color: #fff;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 700;
   padding: 0.2rem 0.6rem;
   border-radius: 999px;
 }
 
 .card-body {
-  padding: 0.5rem 1.25rem 1.25rem;
+  padding: 0.4rem 1.25rem 1.1rem;
 }
 
 ul {
   margin: 0;
-  padding-left: 1.3rem;
+  padding-left: 1.2rem;
 }
 
 li {
-  color: #374151;
-  font-size: 0.925rem;
+  color: #334155;
+  font-size: 0.9rem;
   line-height: 1.65;
-  padding: 0.4rem 0;
-  border-bottom: 1px solid #f3f4f6;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid #f1f5f9;
 }
 
 li:last-child {
@@ -90,9 +92,9 @@ li:last-child {
 }
 
 .empty {
-  padding: 1.25rem 1.25rem;
-  color: #9ca3af;
-  font-size: 0.9rem;
+  padding: 1.1rem 1.25rem;
+  color: #94a3b8;
+  font-size: 0.875rem;
   font-style: italic;
 }
 </style>

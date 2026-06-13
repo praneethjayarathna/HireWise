@@ -1377,11 +1377,14 @@ def _extract_section_lines(
     section_keywords: List[str],
     stop_words: Optional[List[str]] = None,
     min_len: int = 20,
+    fallback: bool = True,
 ) -> List[str]:
     """
     Extract lines that belong to the section identified by *section_keywords*.
     Stops when a line matching any *stop_words* is encountered.
-    Falls back to all lines if the section header is not found.
+    When *fallback* is True and no section header is found, returns all
+    non-trivial lines. Set fallback=False to return [] instead (e.g. for
+    certifications, where a full-document scan produces false positives).
     """
     if stop_words is None:
         stop_words = _SECTION_STOP_WORDS
@@ -1409,7 +1412,7 @@ def _extract_section_lines(
         if len(line) >= min_len:
             section_lines.append(line)
 
-    if not section_lines:
+    if not section_lines and fallback:
         # Fallback: return all non-trivial lines
         section_lines = [l.strip() for l in lines if len(l.strip()) >= min_len]
 
@@ -1832,7 +1835,11 @@ def extract_certifications(text: str) -> List[Dict[str, any]]:
         "professional", "technical", "licenses", "accreditations",
     }
 
-    cert_section_lines = _extract_section_lines(text, cert_section_keywords, min_len=3)
+    # fallback=False: if the resume has no certifications section, return []
+    # rather than running every resume line through SBERT (which causes false
+    # positives like "Certified Embedded Systems Developer" on a CV that has
+    # no certifications at all).
+    cert_section_lines = _extract_section_lines(text, cert_section_keywords, min_len=3, fallback=False)
 
     target_lines = [l.strip() for l in cert_section_lines if l.strip()]
 
@@ -1967,6 +1974,7 @@ def extract_projects(text: str) -> List[Dict[str, any]]:
                 continue
 
             known_section_headers = [
+                # major section names
                 "education", "experience", "skills", "certifications",
                 "employment", "summary", "objective", "references",
                 "work experience", "publications", "awards",
@@ -1975,8 +1983,53 @@ def extract_projects(text: str) -> List[Dict[str, any]]:
                 "honors", "achievements", "affiliations", "memberships",
                 "training", "courses", "patents", "activities",
                 "extracurricular", "community",
+                # compound / multi-word section headers
+                "personal skills", "technical skills", "core skills",
+                "professional skills", "professional experience",
+                "key skills", "soft skills", "hard skills",
+                # skills sub-section headers (e.g. "Programming Languages :")
+                "programming languages", "frameworks and libraries",
+                "frameworks", "libraries", "other tools", "tools",
+                "core competencies", "competencies", "technical expertise",
+                "technical stack", "tech stack", "technology stack",
             ]
-            if any(oh in line_lower and len(line) < 50 for oh in known_section_headers):
+            # (1) Exact-line match: avoids "personal skills" triggering on bare
+            # "skills" via substring, but still catches compound entries we
+            # added explicitly (e.g. "personal skills", "technical skills").
+            line_core = line_lower.strip().rstrip(':. ').strip()
+            is_header = any(line_core == oh for oh in known_section_headers)
+
+            # (2) ALL-CAPS compound headers joined by "&", "/", "and", etc.
+            # e.g. "LANGUAGES & ADDITIONAL", "SKILLS & EXPERIENCE".
+            # Only triggered for lines that are entirely uppercase (section
+            # headings), never for mixed-case prose.
+            _allcaps_break_words = {
+                'education', 'certifications', 'employment', 'references',
+                'publications', 'awards', 'achievements', 'languages',
+                'activities', 'hobbies', 'interests', 'volunteer',
+                'leadership', 'memberships', 'affiliations', 'extracurricular',
+                'patents', 'honors', 'courses', 'training', 'summary',
+                'objective', 'experience', 'additional',
+            }
+            is_allcaps_compound = (
+                len(line) < 60
+                and line.strip().isupper()
+                and bool(
+                    set(re.split(r'[\s&,/|]+', line_lower.strip()))
+                    & _allcaps_break_words
+                )
+            )
+
+            # (3) Short lines ending with ':' are subsection headers
+            # (e.g. "Programming Languages :").
+            is_colon_header = (
+                len(line) < 60
+                and line_lower.rstrip().endswith(':')
+                and line_lower.count(':') == 1
+                and not re.search(r'https?:|//|\d:\d', line_lower)
+            )
+
+            if is_header or is_allcaps_compound or is_colon_header:
                 break
 
             if (
@@ -2036,14 +2089,24 @@ def extract_projects(text: str) -> List[Dict[str, any]]:
 
     def is_tech_line(l: str) -> bool:
         lower = l.lower()
-        return any(
-            lower.startswith(kw) and ':' in lower
-            for kw in ["stack", "tech", "technologies", "tools", "language",
-                       "framework", "database", "library", "api", "platform"]
-        )
+        # Explicit "Tech: ..." / "Stack: ..." labels
+        if any(lower.startswith(kw) and ':' in lower
+               for kw in ["stack", "tech", "technologies", "tools", "language",
+                          "framework", "database", "library", "api", "platform"]):
+            return True
+        # Comma-separated list of 3+ short tokens with no sentence verbs
+        # → looks like a tech-stack enumeration ("PHP, HTML, CSS, MySQL")
+        parts = [p.strip() for p in l.split(',')]
+        if len(parts) >= 3 and all(0 < len(p) <= 30 and len(p.split()) <= 3 for p in parts):
+            return True
+        return False
 
     def is_title_line(l: str, prev: Optional[str], has_existing: bool) -> bool:
         if is_bullet_line(l) or is_action_line(l) or is_tech_line(l):
+            return False
+        # Sentences ending with '.' and 5+ words are prose, not project titles.
+        # e.g. "Open to both on-shore and off-shore collaboration models."
+        if l.rstrip().endswith('.') and len(l.split()) >= 5:
             return False
         if l.lower().startswith(('built a', 'developed a', 'created a', 'designed a')):
             return False
@@ -2105,6 +2168,100 @@ def extract_projects(text: str) -> List[Dict[str, any]]:
             "description": block["description"],
             "confidence": round(max_sim, 3),
         })
+
+    # ── Supplemental pass: year-pattern scan ──────────────────────────────
+    # Multi-column PDFs are often read left-column-first, which places
+    # right-column projects AFTER PERSONAL SKILLS / REFERENCES in the text
+    # stream.  The section-based scan above stops at those headers and misses
+    # those entries.  We scan the full line list for "Title, YYYY-YYYY" /
+    # "Title, YYYY-Present" and add any projects not yet captured.
+    _year_re = re.compile(
+        r'^([\w][\w\s\-\'\"&().+/]+?)'
+        r'\s*,\s*((?:19|20)\d{2})\s*[-–—]\s*'
+        r'((?:19|20)\d{2}|[Pp]resent|[Oo]ngoing|[Cc]urrent)\s*$'
+    )
+
+    # Keyword sets that identify NON-project entries that happen to contain
+    # a year range (education degrees, job titles, school names, etc.)
+    _edu_markers = {
+        'b.sc', 'm.sc', 'ph.d', 'phd', 'bsc', 'msc', 'b.eng', 'm.eng',
+        'bachelor', 'master', 'doctorate', 'degree', 'diploma',
+        'g.c.e', 'gce', 'advanced level', 'ordinary level', 'a/l', 'o/l',
+        'university', 'college', 'school', 'institute', 'faculty',
+        'examination', 'higher national',
+    }
+    _job_markers = {
+        'software engineer', 'senior engineer', 'junior engineer',
+        'developer', 'intern', 'internship', 'engineer', 'manager',
+        'analyst', 'consultant', 'designer', 'architect', 'specialist',
+        'coordinator', 'associate', 'director', 'officer', 'lead',
+        'head of', 'vice president', 'vp ', 'cto', 'ceo',
+    }
+
+    _supp_known = [
+        "education", "experience", "skills", "certifications", "employment",
+        "summary", "objective", "references", "work experience", "publications",
+        "awards", "languages", "language", "additional", "interests", "hobbies",
+        "leadership", "volunteer", "honors", "achievements", "affiliations",
+        "memberships", "training", "courses", "patents", "activities",
+        "extracurricular", "community", "personal skills", "technical skills",
+        "core skills", "professional skills", "professional experience",
+        "key skills", "soft skills", "hard skills",
+        "programming languages", "frameworks and libraries",
+        "frameworks", "libraries", "other tools", "tools",
+    ]
+    existing_keys = {p["project_title"].lower()[:40] for p in projects}
+
+    for idx, raw_line in enumerate(lines):
+        m = _year_re.match(raw_line)
+        if not m:
+            continue
+        candidate = raw_line.strip()
+        name_part = m.group(1).lower().strip()
+
+        # Skip education and job-title entries
+        if any(kw in name_part for kw in _edu_markers):
+            continue
+        if any(kw in name_part for kw in _job_markers):
+            continue
+
+        # Skip if the name looks like a tech/skill list (3+ comma items)
+        name_parts = [p.strip() for p in m.group(1).split(',')]
+        if len(name_parts) >= 3:
+            continue
+
+        # Skip if already captured
+        cand_key = candidate.lower()[:40]
+        if any(cand_key in ek or ek in cand_key for ek in existing_keys):
+            continue
+
+        # Collect following lines as description
+        supp_lines: List[str] = []
+        for j in range(idx + 1, min(idx + 12, len(lines))):
+            nxt = lines[j].strip()
+            if not nxt:
+                continue
+            if _year_re.match(nxt):
+                break
+            nxt_core = nxt.lower().strip().rstrip(':. ').strip()
+            if len(nxt) < 60 and any(nxt_core == oh for oh in _supp_known):
+                continue
+            supp_lines.append(nxt)
+
+        description = " ".join(supp_lines) if supp_lines else candidate
+        # Require a real description — not just the title repeated
+        if len(description) < 25 or description.lower().strip() == candidate.lower().strip():
+            continue
+
+        desc_emb = model.encode([description], convert_to_numpy=True, show_progress_bar=False)
+        l2 = desc_emb / (np.linalg.norm(desc_emb, axis=1, keepdims=True) + 1e-10)
+        supp_sim = float((v_norm @ l2.T).max())
+        projects.append({
+            "project_title": candidate,
+            "description": description,
+            "confidence": round(supp_sim, 3),
+        })
+        existing_keys.add(cand_key)
 
     return projects
 

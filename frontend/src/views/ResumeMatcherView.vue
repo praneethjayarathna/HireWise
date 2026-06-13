@@ -807,39 +807,58 @@ function getCertBarColor(score) {
 <style scoped>
 .page {
   min-height: 100vh;
-  background: linear-gradient(180deg, #f8fafc 0%, #f0f2f5 100%);
+  background: var(--slate-50, #f8fafc);
 }
 
 .navbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1rem 2rem;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  padding: 0 2rem;
+  height: 60px;
+  background: rgba(255,255,255,0.88);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid #e2e8f0;
   position: sticky;
   top: 0;
   z-index: 100;
 }
 
 .brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
   font-weight: 800;
-  font-size: 1.35rem;
-  color: #4f46e5;
+  font-size: 1.1rem;
+  color: #1e1b4b;
   letter-spacing: -0.02em;
+}
+
+.brand::before {
+  content: 'H';
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  background: linear-gradient(135deg, #4f46e5, #6366f1);
+  border-radius: 7px;
+  font-size: 0.9rem;
+  font-weight: 900;
+  color: #fff;
 }
 
 .nav-links {
   display: flex;
   align-items: center;
-  gap: 1.5rem;
+  gap: 1.25rem;
 }
 
 .nav-links a {
-  color: #6b7280;
+  color: #64748b;
   text-decoration: none;
   font-weight: 500;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   transition: color 0.15s;
 }
 
@@ -848,20 +867,20 @@ function getCertBarColor(score) {
 }
 
 .btn-logout {
-  padding: 0.5rem 1.25rem;
+  padding: 0.4rem 0.9rem;
   background: transparent;
   color: #4f46e5;
-  border: 1.5px solid #4f46e5;
+  border: 1.5px solid #c7d2fe;
   border-radius: 8px;
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: 0.82rem;
   font-weight: 600;
   transition: all 0.2s;
 }
 
 .btn-logout:hover {
-  background: #4f46e5;
-  color: #fff;
+  background: #eef2ff;
+  border-color: #4f46e5;
 }
 
 .content {
@@ -872,14 +891,14 @@ function getCertBarColor(score) {
 
 h1 {
   margin: 0 0 0.4rem;
-  font-size: 1.85rem;
-  font-weight: 800;
-  color: #1e1b4b;
-  letter-spacing: -0.02em;
+  font-size: 1.9rem;
+  font-weight: 900;
+  color: #0f172a;
+  letter-spacing: -0.03em;
 }
 
 .subtitle {
-  color: #6b7280;
+  color: #64748b;
   font-size: 1rem;
   margin: 0 0 2rem;
 }
@@ -894,15 +913,16 @@ h1 {
 }
 
 .section-title {
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: #1e1b4b;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #0f172a;
   margin: 0 0 0.25rem;
+  letter-spacing: -0.01em;
 }
 
 .hint {
-  color: #9ca3af;
-  font-size: 0.9rem;
+  color: #94a3b8;
+  font-size: 0.875rem;
   margin: 0 0 1rem;
 }
 
@@ -916,8 +936,8 @@ h1 {
 }
 
 .upload-card:hover {
-  border-color: #a5b4fc;
-  box-shadow: 0 4px 20px rgba(79, 70, 229, 0.08);
+  border-color: #818cf8;
+  box-shadow: 0 8px 28px rgba(79, 70, 229, 0.08);
 }
 
 .upload-card.dragging {
@@ -1150,8 +1170,9 @@ h1 {
 .score-bar-card {
   background: #fff;
   padding: 1rem 1.25rem;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  border-radius: 14px;
+  border: 1.5px solid #e2e8f0;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
 }
 
 .score-bar-header {
@@ -1194,10 +1215,11 @@ h1 {
 }
 
 .overview-title {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: #1e1b4b;
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: #0f172a;
   margin: 0 0 0.25rem;
+  letter-spacing: -0.02em;
 }
 
 .overview-hint {
@@ -1338,10 +1360,11 @@ h1 {
 }
 
 .skills-title {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: #1e1b4b;
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: #0f172a;
   margin: 0 0 1rem;
+  letter-spacing: -0.02em;
 }
 
 .skills-stats {
@@ -1399,10 +1422,10 @@ h1 {
 }
 
 .skills-card {
-  background: #fff;
+  background: #f8fafc;
   border-radius: 12px;
   padding: 1.25rem;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  border: 1px solid #e2e8f0;
 }
 
 .skills-card.matching {
@@ -1548,10 +1571,11 @@ h1 {
 }
 
 .education-title {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: #1e1b4b;
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: #0f172a;
   margin: 0 0 1rem;
+  letter-spacing: -0.02em;
 }
 
 .education-comparison {
@@ -1568,10 +1592,10 @@ h1 {
 }
 
 .education-column {
-  background: #fff;
+  background: #f8fafc;
   border-radius: 12px;
   padding: 1.25rem;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  border: 1px solid #e2e8f0;
 }
 
 .education-column-title {
@@ -1781,10 +1805,11 @@ h1 {
 }
 
 .experience-title {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: #1e1b4b;
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: #0f172a;
   margin: 0 0 1rem;
+  letter-spacing: -0.02em;
 }
 
 .experience-cards {
@@ -1801,10 +1826,10 @@ h1 {
 }
 
 .experience-card {
-  background: #fff;
+  background: #f8fafc;
   border-radius: 12px;
   padding: 1.25rem;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  border: 1px solid #e2e8f0;
 }
 
 .experience-card-title {
@@ -1926,16 +1951,18 @@ h1 {
 .responsibility-section {
   margin-top: 2.5rem;
   background: #fff;
-  border-radius: 12px;
+  border-radius: 16px;
   padding: 1.5rem;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  border: 1.5px solid #e2e8f0;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
 }
 
 .resp-title {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: #1e1b4b;
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: #0f172a;
   margin: 0 0 1rem;
+  letter-spacing: -0.02em;
 }
 
 .resp-score-card {
@@ -2066,16 +2093,18 @@ h1 {
 .project-section {
   margin-top: 2.5rem;
   background: #fff;
-  border-radius: 12px;
+  border-radius: 16px;
   padding: 1.5rem;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  border: 1.5px solid #e2e8f0;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
 }
 
 .cert-section-title {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: #1e1b4b;
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: #0f172a;
   margin: 0 0 0.5rem;
+  letter-spacing: -0.02em;
 }
 
 .cert-section-summary {
@@ -2097,8 +2126,9 @@ h1 {
 
 .cert-card {
   padding: 0.75rem 1rem;
-  background: #f9fafb;
+  background: #f8fafc;
   border-radius: 10px;
+  border: 1px solid #e2e8f0;
   border-left: 4px solid #8b5cf6;
 }
 
