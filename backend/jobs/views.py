@@ -31,17 +31,96 @@ from .serializers import (
 )
 
 
+def _education_graduated_score(edu: dict) -> float:
+    """
+    Smooth 5-step education score — no cliff edge.
+
+    Gap between job requirement level and resume level:
+      0  (meets/exceeds)   → 1.00
+      1  (one level below) → 0.70
+      2                    → 0.45
+      3+                   → 0.15
+    No stated requirement  → 0.75 (neutral)
+    Matching major adds    +0.08 bonus (capped at 1.0)
+
+    Education level values (from EDUCATION_LEVELS):
+      Certificate=1, Associate=2, Bachelor's=3, Master's=4, PhD=5
+    """
+    job_h = edu.get('job_highest')
+    res_h = edu.get('resume_highest')
+
+    if not job_h or not (job_h.get('level_value') or 0):
+        return 0.75  # no education requirement stated
+
+    job_lv = job_h.get('level_value') or 0
+    res_lv = (res_h.get('level_value') or 0) if res_h else 0
+
+    gap = job_lv - res_lv
+    if gap <= 0:
+        base = 1.00
+    elif gap == 1:
+        base = 0.70
+    elif gap == 2:
+        base = 0.45
+    else:
+        base = 0.15
+
+    if edu.get('matching_majors'):
+        base = min(1.0, base + 0.08)
+
+    return base
+
+
+def _experience_graduated_score(exp: dict) -> float:
+    """
+    Smooth experience score — no cliff edge.
+
+    Level gap (ordinal 0–6, where Entry=1 … Expert=6 per EXPERIENCE_PATTERNS):
+      0  (meets/exceeds)    → 1.00
+      1  (one level below)  → 0.75
+      2                     → 0.50
+      3                     → 0.30
+      4+                    → 0.15
+    No stated requirement   → 0.75 (neutral)
+    """
+    job_exp = exp.get('job_experience', {})
+    res_exp = exp.get('resume_experience', {})
+
+    job_lv = job_exp.get('level_value') or 0
+    res_lv = res_exp.get('level_value') or 0
+
+    if not job_lv:
+        return 0.75  # no experience requirement stated
+
+    gap = job_lv - res_lv
+    if gap <= 0:
+        return 1.00
+    elif gap == 1:
+        return 0.75
+    elif gap == 2:
+        return 0.50
+    elif gap == 3:
+        return 0.30
+    else:
+        return 0.15
+
+
 def _compute_rank_score(analysis: dict):
     """
-    Composite ranking score (0–100) from all analysis dimensions.
+    Composite ranking score (0–100) using similarity-weighted, graduated scoring.
 
-    Weights:
-      Skills (effective)   35 %
-      Responsibilities     25 %
-      Education            15 %
-      Experience           10 %
-      Certifications        8 %
-      Projects              7 %
+    Section scores (all 0–1 before weighting):
+      Skills        – weighted by JD skill importance; partial SBERT credit
+      Duties        – mean cosine similarity across all JD responsibilities
+      Education     – graduated 5-step scale (no cliff edge)
+      Experience    – graduated scale (no cliff edge)
+      Certifications – quality-weighted relevance; neutral 0.5 when JD doesn't require
+      Projects      – average max-skill-similarity per project
+
+    Weights (dynamic):
+      Default            Skills 35%  Duties 25%  Edu 13%  Exp 10%  Cert  8%  Proj  9%
+      Entry-level JD     Skills 35%  Duties 18%  Edu 15%  Exp  5%  Cert  5%  Proj 22%
+      Cert-required JD   Skills 31%  Duties 25%  Edu 12%  Exp 10%  Cert 12%  Proj 10%
     """
     skill = analysis.get('skill_analysis', {})
     resp  = analysis.get('responsibility_analysis', {})
@@ -50,30 +129,73 @@ def _compute_rank_score(analysis: dict):
     cert  = analysis.get('certification_analysis', {})
     proj  = analysis.get('project_analysis', {})
 
-    skill_rate = skill.get('effective_match_rate', skill.get('match_rate', 0)) / 100.0
-    resp_score = resp.get('effective_score', resp.get('score', 0)) / 100.0
-    edu_ok     = 1.0 if edu.get('meets_requirement', False) else 0.3
-    exp_ok     = 1.0 if exp.get('meets_requirement', False) else 0.3
-    cert_rate  = cert.get('overall_match_score', 0) / 100.0
-    proj_rate  = proj.get('overall_match_score', 0) / 100.0
+    # --- 1. Skills: JD-importance-weighted coverage with partial SBERT credit ---
+    skill_score = skill.get(
+        'weighted_effective_rate',
+        skill.get('effective_match_rate', skill.get('match_rate', 0))
+    ) / 100.0
+    skill_score = max(0.0, min(1.0, skill_score))
+
+    # --- 2. Responsibilities: mean cosine similarity across all JD duties ---
+    mean_sim = resp.get('mean_similarity')
+    if mean_sim is not None:
+        resp_score = max(0.0, min(1.0, float(mean_sim)))
+    else:
+        resp_score = max(0.0, min(1.0,
+            resp.get('effective_score', resp.get('score', 0)) / 100.0
+        ))
+
+    # --- 3. Education: graduated scale ---
+    edu_score = _education_graduated_score(edu)
+
+    # --- 4. Experience: graduated scale ---
+    exp_score = _experience_graduated_score(exp)
+
+    # --- 5. Certifications: quality-weighted, neutral when JD doesn't need them ---
+    cert_raw = cert.get('quality_score')
+    if cert_raw is not None:
+        cert_score = max(0.0, min(1.0, float(cert_raw)))
+    else:
+        cert_score = max(0.0, min(1.0, cert.get('overall_match_score', 0) / 100.0))
+
+    # --- 6. Projects: avg max-skill-similarity per project ---
+    proj_raw = proj.get('quality_score')
+    if proj_raw is not None:
+        proj_score = max(0.0, min(1.0, float(proj_raw)))
+    else:
+        proj_score = max(0.0, min(1.0, proj.get('overall_match_score', 0) / 100.0))
+
+    # --- Dynamic weight selection ---
+    job_lv = (exp.get('job_experience', {}) or {}).get('level_value') or 0
+    cert_required = bool(cert.get('jd_requires_certs', False))
+
+    if job_lv <= 1:  # entry-level / fresh-graduate JD → projects matter more
+        w = {'skills': 0.35, 'resp': 0.18, 'edu': 0.15, 'exp': 0.05, 'cert': 0.05, 'proj': 0.22}
+    elif cert_required:
+        w = {'skills': 0.31, 'resp': 0.25, 'edu': 0.12, 'exp': 0.10, 'cert': 0.12, 'proj': 0.10}
+    else:
+        w = {'skills': 0.35, 'resp': 0.25, 'edu': 0.13, 'exp': 0.10, 'cert': 0.08, 'proj': 0.09}
 
     composite = (
-        skill_rate * 0.35 +
-        resp_score * 0.25 +
-        edu_ok     * 0.15 +
-        exp_ok     * 0.10 +
-        cert_rate  * 0.08 +
-        proj_rate  * 0.07
+        skill_score * w['skills'] +
+        resp_score  * w['resp']   +
+        edu_score   * w['edu']    +
+        exp_score   * w['exp']    +
+        cert_score  * w['cert']   +
+        proj_score  * w['proj']
     )
     rank_score = round(composite * 100, 1)
 
     breakdown = {
-        'skills':           round(skill_rate * 100, 1),
+        'skills':           round(skill_score * 100, 1),
         'responsibilities': round(resp_score * 100, 1),
+        'education':        round(edu_score * 100, 1),
+        'experience':       round(exp_score * 100, 1),
+        'certifications':   round(cert_score * 100, 1),
+        'projects':         round(proj_score * 100, 1),
+        # Boolean flags kept for UI ✓/✗ badges
         'education_met':    bool(edu.get('meets_requirement', False)),
         'experience_met':   bool(exp.get('meets_requirement', False)),
-        'certifications':   round(cert_rate * 100, 1),
-        'projects':         round(proj_rate * 100, 1),
     }
     return rank_score, breakdown
 

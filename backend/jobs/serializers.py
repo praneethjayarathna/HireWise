@@ -64,6 +64,7 @@ class SkillAnalysisSerializer(serializers.Serializer):
     resume_skills_count = serializers.IntegerField()
     match_rate = serializers.FloatField()
     effective_match_rate = serializers.FloatField(required=False)
+    weighted_effective_rate = serializers.FloatField(required=False)
 
 
 class EducationItemSerializer(serializers.Serializer):
@@ -123,4 +124,5 @@ class ResponsibilityAnalysisSerializer(serializers.Serializer):
     unmatched_responsibilities = serializers.ListField(child=serializers.CharField())
     score = serializers.FloatField()
     effective_score = serializers.FloatField(required=False)
+    mean_similarity = serializers.FloatField(required=False)
     explanation = serializers.CharField()

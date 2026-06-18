@@ -333,14 +333,25 @@ def _find_skills_in_text(text: str) -> Dict[str, float]:
 def _semantic_skill_match(
     job_skills: Dict[str, float],
     resume_skills: Dict[str, float]
-) -> Tuple[List[str], List[str], Dict[str, str]]:
+) -> Tuple[List[str], List[str], Dict[str, str], Dict[str, float]]:
+    """
+    Match job skills against resume skills via SBERT embeddings.
+
+    Returns
+    -------
+    matched       – resume skill names that were matched to a JD skill
+    missing       – JD skill names with no match above MATCH_THRESHOLD
+    variations    – {job_skill: resume_skill} for name-variant matches
+    job_to_sim    – {job_skill: best_cosine_similarity} for every matched JD skill
+                    (unmatched skills are absent → caller treats them as 0.0)
+    """
     model = _get_model()
 
     job_skill_list = list(job_skills.keys())
     resume_skill_list = list(resume_skills.keys())
 
     if not job_skill_list or not resume_skill_list:
-        return [], list(job_skills.keys()), {}
+        return [], list(job_skills.keys()), {}, {}
 
     job_embeddings = model.encode(job_skill_list, convert_to_numpy=True, show_progress_bar=False)
     resume_embeddings = model.encode(resume_skill_list, convert_to_numpy=True, show_progress_bar=False)
@@ -352,6 +363,7 @@ def _semantic_skill_match(
     matched = []
     missing = []
     variations: Dict[str, str] = {}
+    job_to_sim: Dict[str, float] = {}
 
     matched_indices = set()
     for i, job_skill in enumerate(job_skill_list):
@@ -361,6 +373,7 @@ def _semantic_skill_match(
         if best_j not in matched_indices and best_sim >= MATCH_THRESHOLD:
             matched.append(resume_skill_list[best_j])
             matched_indices.add(best_j)
+            job_to_sim[job_skill] = best_sim
             if resume_skill_list[best_j] != job_skill:
                 variations[job_skill] = resume_skill_list[best_j]
         else:
@@ -371,6 +384,7 @@ def _semantic_skill_match(
                 if j not in matched_indices and similarity_matrix[i, j] >= MATCH_THRESHOLD:
                     matched.append(resume_skill_list[j])
                     matched_indices.add(j)
+                    job_to_sim[job_skill] = float(similarity_matrix[i, j])
                     if resume_skill_list[j] != job_skill:
                         variations[job_skill] = resume_skill_list[j]
                     found = True
@@ -378,7 +392,7 @@ def _semantic_skill_match(
             if not found:
                 missing.append(job_skill)
 
-    return matched, missing, variations
+    return matched, missing, variations, job_to_sim
 
 
 def extract_skills_with_scores(text: str) -> Dict[str, Dict[str, float]]:
@@ -565,7 +579,7 @@ def compare_skills(
 
     # --- Layer 1: direct skill matching ---
     exact_match = set(job_flat) & set(resume_flat)
-    semantic_match, still_missing, variations = _semantic_skill_match(job_flat, resume_flat)
+    semantic_match, still_missing, variations, job_to_sim = _semantic_skill_match(job_flat, resume_flat)
     direct_matched: Set[str] = set(exact_match) | set(semantic_match)
     direct_missing: Set[str] = set(still_missing) - set(semantic_match)
 
@@ -601,6 +615,35 @@ def compare_skills(
     all_matched = sorted(direct_matched | project_skill_names | cert_skill_names)
     all_missing = sorted(direct_missing - project_skill_names - cert_skill_names)
 
+    # Weighted effective match rate: each JD skill contributes proportionally to
+    # its detection confidence in the JD. Partial credit is given for SBERT
+    # semantic matches based on actual cosine similarity:
+    #   exact name match          → 1.0
+    #   SBERT match at threshold  → 0.5 (scales to 1.0 at perfect similarity)
+    #   found only in projects    → 0.65 (indirect evidence, discounted)
+    #   found only via certs      → 0.60 (implied, more discounted)
+    #   not found                 → 0.0
+    total_weight = sum(job_flat.values()) if job_flat else 0.0
+    if total_weight > 0:
+        matched_weight = 0.0
+        for js, js_conf in job_flat.items():
+            if js in exact_match:
+                credit = 1.0
+            elif js in job_to_sim:
+                sim = job_to_sim[js]
+                norm = (sim - MATCH_THRESHOLD) / max(1e-9, 1.0 - MATCH_THRESHOLD)
+                credit = 0.5 + 0.5 * norm  # [0.5, 1.0] range
+            elif js in project_skill_names:
+                credit = 0.65
+            elif js in cert_skill_names:
+                credit = 0.60
+            else:
+                credit = 0.0
+            matched_weight += js_conf * credit
+        weighted_effective_rate = round(matched_weight / total_weight * 100, 1)
+    else:
+        weighted_effective_rate = round(len(all_matched) / len(job_flat) * 100, 1) if job_flat else 0
+
     return {
         "matching_skills": sorted(direct_matched),
         "missing_skills": all_missing,
@@ -611,6 +654,7 @@ def compare_skills(
         "resume_skills_count": len(resume_flat),
         "match_rate": round(len(direct_matched) / len(job_flat) * 100, 1) if job_flat else 0,
         "effective_match_rate": round(len(all_matched) / len(job_flat) * 100, 1) if job_flat else 0,
+        "weighted_effective_rate": weighted_effective_rate,
     }
 
 
@@ -1629,6 +1673,15 @@ def compare_responsibilities(
     exp_score = exp_comparison["score"]
     effective_score = round((len(matched_via_exp) + len(matched_via_proj)) / total * 100, 1) if total else 0
 
+    # Mean cosine similarity across ALL JD duties — matched duties contribute
+    # their actual similarity score; unmatched duties contribute 0. This
+    # captures both coverage and match quality in a single number (0–1).
+    matched_sims = (
+        [m["similarity"] for m in matched_via_exp]
+        + [m["similarity"] for m in matched_via_proj]
+    )
+    mean_similarity = round(sum(matched_sims) / total, 3) if total else 0.0
+
     # Build explanation using the effective score
     if effective_score >= 80:
         explanation = f"Excellent match ({effective_score}%): Strong coverage across work experience and projects."
@@ -1654,6 +1707,7 @@ def compare_responsibilities(
         "unmatched_responsibilities": still_unmatched,
         "score": exp_score,
         "effective_score": effective_score,
+        "mean_similarity": mean_similarity,
         "explanation": explanation,
     }
 
@@ -2341,6 +2395,15 @@ def compare_certifications_with_job(
     certification required").
     """
     resume_certs = extracted_certs if extracted_certs is not None else extract_certifications(resume_text)
+
+    # Detect whether the JD explicitly requires certifications so the scorer
+    # can distinguish "no certs + JD doesn't care" from "no certs + JD needs them".
+    _cert_req_re = re.compile(
+        r'\b(certif\w*|credential|accredit|licens\w*)\b.{0,60}\b(required|must|mandatory|essential)\b',
+        re.I | re.S,
+    )
+    jd_requires_certs = bool(_cert_req_re.search(job_text))
+
     if not resume_certs:
         return {
             "certifications": [],
@@ -2348,6 +2411,8 @@ def compare_certifications_with_job(
             "qualification_matches": [],
             "overall_match_score": 0,
             "total_certifications": 0,
+            "jd_requires_certs": jd_requires_certs,
+            "quality_score": 0.0 if jd_requires_certs else 0.5,
             "summary": "No certifications found in the resume.",
         }
 
@@ -2432,6 +2497,20 @@ def compare_certifications_with_job(
     high_relevance = sum(1 for c in certification_skills_map if c["has_relevance"])
     overall_match_score = round(high_relevance / len(resume_certs) * 100, 1) if resume_certs else 0
 
+    # Quality-weighted score (0–1): average of each cert's mean top-3 skill
+    # similarity. Bonus for certs that satisfy stated JD requirements.
+    cert_quality_scores = []
+    for c_map in certification_skills_map:
+        rel = c_map.get("related_skills", [])
+        if rel:
+            top3 = sorted([s["similarity_score"] for s in rel], reverse=True)[:3]
+            cert_quality_scores.append(sum(top3) / len(top3))
+        else:
+            cert_quality_scores.append(0.05)  # cert exists but no JD skill overlap
+    quality_score = sum(cert_quality_scores) / len(cert_quality_scores) if cert_quality_scores else 0.0
+    qual_bonus = min(0.15, 0.05 * len(qualification_matches))
+    quality_score = round(min(1.0, quality_score + qual_bonus), 3)
+
     return {
         "certifications": [
             {"certification": c["certification"], "confidence": c["confidence"], "context": c["context"]}
@@ -2442,6 +2521,8 @@ def compare_certifications_with_job(
         "overall_match_score": overall_match_score,
         "total_certifications": len(resume_certs),
         "relevant_certifications": high_relevance,
+        "jd_requires_certs": jd_requires_certs,
+        "quality_score": quality_score,
         "summary": (
             f"Found {len(resume_certs)} certification(s). "
             f"{high_relevance} relate to skills sought by the job ({overall_match_score}% relevance)."
@@ -2474,6 +2555,7 @@ def compare_projects_with_job(
             "responsibility_matches": [],
             "overall_match_score": 0,
             "total_projects": 0,
+            "quality_score": 0.0,
             "summary": "No projects found in the resume.",
         }
 
@@ -2505,6 +2587,8 @@ def compare_projects_with_job(
                 if skill_sim[i, j] >= 0.25
             ]
             skill_matches.sort(key=lambda x: x["similarity_score"], reverse=True)
+            # Quality score for this project: max similarity to any JD skill
+            proj_quality = max((s["similarity_score"] for s in skill_matches), default=0.0)
             projects_skills_map.append({
                 "project_title": proj["project_title"],
                 "confidence": proj["confidence"],
@@ -2512,6 +2596,7 @@ def compare_projects_with_job(
                 "related_skills": [s["skill"] for s in skill_matches],
                 "related_skills_count": len(skill_matches),
                 "has_relevance": len(skill_matches) > 0,
+                "quality_score": proj_quality,
             })
     else:
         for proj in resume_projects:
@@ -2522,6 +2607,7 @@ def compare_projects_with_job(
                 "related_skills": [],
                 "related_skills_count": 0,
                 "has_relevance": False,
+                "quality_score": 0.0,
             })
 
     # --- Responsibility matching ---
@@ -2551,6 +2637,11 @@ def compare_projects_with_job(
     high_relevance = sum(1 for p in projects_skills_map if p["has_relevance"])
     overall_match_score = round(high_relevance / len(resume_projects) * 100, 1) if resume_projects else 0
 
+    # Average of each project's max-skill similarity — captures both how many
+    # projects are relevant AND how strongly they align with JD skills.
+    proj_quality_vals = [p.get("quality_score", 0.0) for p in projects_skills_map]
+    quality_score = round(sum(proj_quality_vals) / len(proj_quality_vals), 3) if proj_quality_vals else 0.0
+
     return {
         "projects": [
             {"project_title": p["project_title"], "confidence": p["confidence"], "description": p["description"]}
@@ -2561,6 +2652,7 @@ def compare_projects_with_job(
         "overall_match_score": overall_match_score,
         "total_projects": len(resume_projects),
         "relevant_projects": high_relevance,
+        "quality_score": quality_score,
         "summary": (
             f"Found {len(resume_projects)} project(s). "
             f"{high_relevance} relate to skills sought by the job ({overall_match_score}% relevance)."
