@@ -160,24 +160,62 @@ def _split_sentences(text: str) -> List[Tuple[str, Optional[int]]]:
 
     context_category_index is the category inferred from the most recent
     section header, or None if no header has been seen yet.
+
+    PDF word-wrapping means a single sentence is often spread across
+    multiple lines.  We reconstruct paragraphs by buffering consecutive
+    lines that do NOT end with a sentence terminator (.!?), then split
+    the reconstructed paragraph at proper boundaries.  This prevents
+    word-wrapped fragments like "passion for technology with my"  from
+    being treated as independent sentences.
     """
     text = text.replace("\r\n", "\n").replace("\r", "\n")
-    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    raw_lines = [l.strip() for l in text.split("\n") if l.strip()]
 
-    result: List[Tuple[str, Optional[int]]] = []
+    # --- Pass 1: reconstruct paragraphs ---
+    # Lines ending with .!? close the current buffer (sentence complete).
+    # Lines starting with a bullet marker (•, -, * …) are standalone items
+    # and should never be joined with adjacent prose lines.
+    _sent_end  = re.compile(r'[.!?]\s*$')
+    _bullet    = re.compile(r'^[•\-*◦○●▸►→]')
+    paragraphs: List[Tuple[str, Optional[int]]] = []
     current_context: Optional[int] = None
+    buf: List[str] = []
 
-    for line in lines:
+    for line in raw_lines:
         header_cat = _is_header(line)
         if header_cat is not None:
+            if buf:
+                paragraphs.append((' '.join(buf), current_context))
+                buf = []
             current_context = header_cat
             continue
 
-        parts = re.split(r"(?<=[.!?])\s+", line)
+        is_bullet = bool(_bullet.match(line))
+
+        # Flush existing buffer before a bullet so bullets are never joined
+        # with preceding prose lines.
+        if is_bullet and buf:
+            paragraphs.append((' '.join(buf), current_context))
+            buf = []
+
+        buf.append(line)
+
+        # Close buffer on sentence terminator OR after a standalone bullet.
+        if _sent_end.search(line) or is_bullet:
+            paragraphs.append((' '.join(buf), current_context))
+            buf = []
+
+    if buf:
+        paragraphs.append((' '.join(buf), current_context))
+
+    # --- Pass 2: split each reconstructed paragraph into sentences ---
+    result: List[Tuple[str, Optional[int]]] = []
+    for para, ctx in paragraphs:
+        parts = re.split(r'(?<=[.!?])\s+', para)
         for part in parts:
             part = part.strip()
             if len(part) > 10:
-                result.append((part, current_context))
+                result.append((part, ctx))
 
     return result
 
