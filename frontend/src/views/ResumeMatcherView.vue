@@ -122,9 +122,13 @@
             <div class="score-bar-header">
               <span class="cat-icon">{{ dim.icon }}</span>
               <span class="cat-label">{{ dim.label }}</span>
-              <span class="cat-score">{{ dim.value }}%</span>
+              <span v-if="dim.na" class="met-badge met-na">N/A</span>
+              <span v-else-if="dim.met !== undefined" :class="['met-badge', dim.met ? 'met-yes' : 'met-no']">
+                {{ dim.met ? 'Yes' : 'No' }}
+              </span>
+              <span v-else class="cat-score">{{ dim.value }}%</span>
             </div>
-            <div class="score-bar-track">
+            <div v-if="!dim.na && dim.met === undefined" class="score-bar-track">
               <div
                 class="score-bar-fill"
                 :style="{ width: `${dim.value}%`, backgroundColor: dim.color }"
@@ -461,7 +465,7 @@
           </div>
         </div>
 
-        <div class="match-score-bar">
+        <div v-if="(certificationAnalysis.total_certifications ?? 0) > 0" class="match-score-bar">
           <div class="match-score-header">
             <span class="match-score-label">Certification Match Score</span>
             <span class="match-score-value" :class="getCertScoreClass(certQualityPct)">
@@ -574,13 +578,14 @@ const resumeDragging = ref(false)
 
 const breakdownDims = computed(() => {
   const bd = scoreBreakdown.value ?? {}
+  const noCerts = (certificationAnalysis.value?.total_certifications ?? 0) === 0
   return [
     { key: 'skills',           label: 'Skills',           icon: '⚡', color: '#4f46e5', value: bd.skills           ?? 0 },
     { key: 'responsibilities', label: 'Responsibilities', icon: '📋', color: '#0ea5e9', value: bd.responsibilities  ?? 0 },
-    { key: 'certifications',   label: 'Certifications',   icon: '🏅', color: '#f59e0b', value: bd.certifications    ?? 0 },
+    { key: 'certifications',   label: 'Certifications',   icon: '🏅', color: '#f59e0b', value: bd.certifications    ?? 0, na: noCerts },
     { key: 'projects',         label: 'Projects',         icon: '🗂️', color: '#10b981', value: bd.projects          ?? 0 },
-    { key: 'education',        label: 'Education',        icon: '🎓', color: '#8b5cf6', value: bd.education         ?? 0 },
-    { key: 'experience',       label: 'Experience',       icon: '💼', color: '#6366f1', value: bd.experience        ?? 0 },
+    { key: 'education',  label: 'Education',  icon: '🎓', color: '#8b5cf6', value: bd.education  ?? 0, met: bd.education_met },
+    { key: 'experience', label: 'Experience', icon: '💼', color: '#6366f1', value: bd.experience ?? 0, met: bd.experience_met },
     { key: 'overview',         label: 'Overview (F1)',    icon: '🏢', color: '#06b6d4', value: Number(overviewAvgScore.value) },
   ]
 })
@@ -1127,6 +1132,11 @@ h1 {
   font-weight: 700;
   color: #1e1b4b;
 }
+
+.met-badge { font-size: 0.72rem; font-weight: 700; padding: 0.18rem 0.6rem; border-radius: 999px; }
+.met-yes   { background: #dcfce7; color: #16a34a; }
+.met-no    { background: #fee2e2; color: #dc2626; }
+.met-na    { background: #f1f5f9; color: #64748b; }
 
 .score-bar-track {
   height: 8px;

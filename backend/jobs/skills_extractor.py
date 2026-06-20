@@ -1756,25 +1756,15 @@ def compare_responsibilities(
     exp_score = exp_comparison["score"]
     effective_score = round((len(matched_via_exp) + len(matched_via_proj)) / total * 100, 1) if total else 0
 
-    # Threshold-free mean similarity: for each JD duty take its best-match
-    # similarity to any resume line (experience or project), then average.
-    # No hard cut-off — every duty contributes its actual best score so
-    # partial relevance is captured and the result is a smooth 0–1 signal.
-    exp_max_sims: List[float] = exp_comparison.get("max_sims_per_duty", [0.0] * total)
-
-    # For duties that were unmatched after Pass 1, check if projects improve them.
-    final_max_sims = list(exp_max_sims)
-    if proj_comparison is not None:
-        proj_max_sims: List[float] = proj_comparison.get("max_sims_per_duty", [])
-        if proj_max_sims:
-            unmatched_set = set(unmatched_after_exp)
-            unmatched_orig_idx = [
-                i for i, r in enumerate(job_responsibilities) if r in unmatched_set
-            ]
-            for orig_idx, proj_sim in zip(unmatched_orig_idx, proj_max_sims):
-                final_max_sims[orig_idx] = max(final_max_sims[orig_idx], proj_sim)
-
-    mean_similarity = round(sum(final_max_sims) / total, 3) if total else 0.0
+    # Mean cosine similarity across ALL JD duties — matched duties (above the
+    # 0.50 threshold) contribute their actual similarity; unmatched duties
+    # contribute 0.  This captures both coverage and match quality without
+    # rewarding background SBERT noise from unrelated text.
+    matched_sims = (
+        [m["similarity"] for m in matched_via_exp]
+        + [m["similarity"] for m in matched_via_proj]
+    )
+    mean_similarity = round(sum(matched_sims) / total, 3) if total else 0.0
 
     # Build explanation using the threshold-free mean_similarity (consistent with score breakdown)
     mean_pct = round(mean_similarity * 100, 1)
@@ -2509,7 +2499,7 @@ def compare_certifications_with_job(
             "jd_requires_certs": jd_requires_certs,
             "coverage_score": 0.0,
             "relevance_score": 0.0,
-            "quality_score": 0.0 if jd_requires_certs else 0.5,
+            "quality_score": 0.0,
             "summary": "No certifications found in the resume.",
         }
 

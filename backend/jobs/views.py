@@ -152,8 +152,15 @@ def _compute_rank_score(analysis: dict):
     exp_score = _experience_graduated_score(exp)
 
     # --- 5. Certifications: quality-weighted, neutral when JD doesn't need them ---
+    # When the JD doesn't require certs and the candidate has none, treat as
+    # neutral (0.5) for the composite so they are not unfairly penalised.
+    # The display score (quality_score) is always 0.0 in this case.
+    cert_total = cert.get('total_certifications', 0)
+    cert_jd_req = cert.get('jd_requires_certs', False)
     cert_raw = cert.get('quality_score')
-    if cert_raw is not None:
+    if cert_total == 0 and not cert_jd_req:
+        cert_score = 0.5  # neutral: certs irrelevant for this JD
+    elif cert_raw is not None:
         cert_score = max(0.0, min(1.0, float(cert_raw)))
     else:
         cert_score = max(0.0, min(1.0, cert.get('overall_match_score', 0) / 100.0))
@@ -191,7 +198,7 @@ def _compute_rank_score(analysis: dict):
         'responsibilities': round(resp_score * 100, 1),
         'education':        round(edu_score * 100, 1),
         'experience':       round(exp_score * 100, 1),
-        'certifications':   round(cert_score * 100, 1),
+        'certifications':   round((float(cert_raw) if cert_raw is not None else 0.0) * 100, 1),
         'projects':         round(proj_score * 100, 1),
         # Boolean flags kept for UI ✓/✗ badges
         'education_met':    bool(edu.get('meets_requirement', False)),
