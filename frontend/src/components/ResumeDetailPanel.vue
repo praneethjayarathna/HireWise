@@ -55,18 +55,18 @@
         <!-- ── Scrollable analysis body ────────────────────────────────── -->
         <div class="panel-body">
 
-          <!-- Category similarity scores -->
-          <section v-if="sim" class="section">
-            <h3 class="section-title">Category Match Scores</h3>
+          <!-- Score breakdown -->
+          <section v-if="resume.score_breakdown" class="section">
+            <h3 class="section-title">Score Breakdown</h3>
             <div class="cat-bars">
-              <div v-for="cat in categories" :key="cat.key" class="cat-bar-card">
+              <div v-for="dim in breakdownDims" :key="dim.key" class="cat-bar-card">
                 <div class="cat-bar-header">
-                  <span class="cat-icon">{{ cat.icon }}</span>
-                  <span class="cat-label">{{ cat.label }}</span>
-                  <span class="cat-score">{{ (catScore(cat.key) * 100).toFixed(0) }}%</span>
+                  <span class="cat-icon">{{ dim.icon }}</span>
+                  <span class="cat-label">{{ dim.label }}</span>
+                  <span class="cat-score">{{ dim.value }}%</span>
                 </div>
                 <div class="bar-track-lg">
-                  <div class="bar-fill-lg" :style="{ width: catScore(cat.key) * 100 + '%', background: cat.color }" />
+                  <div class="bar-fill-lg" :style="{ width: dim.value + '%', background: dim.color }" />
                 </div>
               </div>
             </div>
@@ -238,8 +238,8 @@
           <section v-if="resp" class="section">
             <h3 class="section-title">Responsibilities vs Experience</h3>
             <div class="resp-score-row">
-              <div class="resp-score-badge" :class="respTier(resp.score)">
-                <span class="resp-score-num">{{ resp.effective_score ?? resp.score }}%</span>
+              <div class="resp-score-badge" :class="respTier(respScorePct)">
+                <span class="resp-score-num">{{ respScorePct }}%</span>
                 <span class="resp-score-sub">Duties Match</span>
               </div>
               <p class="resp-explanation">{{ resp.explanation }}</p>
@@ -316,11 +316,11 @@
 
             <div class="relevance-bar">
               <div class="rel-header">
-                <span class="rel-label">Overall Certification Relevance</span>
-                <span class="rel-val" :class="scoreClass(cert.overall_match_score)">{{ cert.overall_match_score }}%</span>
+                <span class="rel-label">Certification Match Score</span>
+                <span class="rel-val" :class="scoreClass(certQualityPct)">{{ certQualityPct }}%</span>
               </div>
               <div class="bar-track-lg">
-                <div class="bar-fill-lg" :style="{ width: cert.overall_match_score + '%', background: barColor(cert.overall_match_score) }" />
+                <div class="bar-fill-lg" :style="{ width: certQualityPct + '%', background: barColor(certQualityPct) }" />
               </div>
             </div>
           </section>
@@ -359,11 +359,11 @@
 
             <div class="relevance-bar">
               <div class="rel-header">
-                <span class="rel-label">Overall Project Relevance</span>
-                <span class="rel-val" :class="scoreClass(proj.overall_match_score)">{{ proj.overall_match_score }}%</span>
+                <span class="rel-label">Project Match Score</span>
+                <span class="rel-val" :class="scoreClass(projQualityPct)">{{ projQualityPct }}%</span>
               </div>
               <div class="bar-track-lg">
-                <div class="bar-fill-lg" :style="{ width: proj.overall_match_score + '%', background: barColor(proj.overall_match_score) }" />
+                <div class="bar-fill-lg" :style="{ width: projQualityPct + '%', background: barColor(projQualityPct) }" />
               </div>
             </div>
           </section>
@@ -390,15 +390,11 @@ const exp      = computed(() => analysis.value.experience_analysis)
 const resp     = computed(() => analysis.value.responsibility_analysis)
 const cert     = computed(() => analysis.value.certification_analysis)
 const proj     = computed(() => analysis.value.project_analysis)
+const certQualityPct = computed(() => Math.round((cert.value?.quality_score ?? 0) * 100))
+const projQualityPct = computed(() => Math.round((proj.value?.quality_score ?? 0) * 100))
+const respScorePct   = computed(() => Math.round((resp.value?.mean_similarity ?? 0) * 100))
 const overviewMatches  = computed(() => analysis.value.overview_matches ?? null)
 const overviewF1Score  = computed(() => analysis.value.overview_f1_score ?? null)
-
-const categories = [
-  { key: 'skills',          label: 'Skills',           icon: '⚡', color: '#4f46e5' },
-  { key: 'responsibilities',label: 'Responsibilities',  icon: '📋', color: '#0ea5e9' },
-  { key: 'qualifications',  label: 'Qualifications',   icon: '🎓', color: '#8b5cf6' },
-  { key: 'overview',        label: 'Overview',         icon: '🏢', color: '#6366f1' },
-]
 
 const overviewAvgScore = computed(() => {
   if (overviewF1Score.value != null) return (overviewF1Score.value * 100).toFixed(0)
@@ -407,14 +403,18 @@ const overviewAvgScore = computed(() => {
   return ((sum / overviewMatches.value.length) * 100).toFixed(0)
 })
 
-function catScore(key) {
-  if (!sim.value) return 0
-  if (key === 'skills' && skill.value)
-    return (skill.value.effective_match_rate ?? skill.value.match_rate) / 100
-  if (key === 'responsibilities' && resp.value)
-    return (resp.value.effective_score ?? resp.value.score) / 100
-  return sim.value[key] ?? 0
-}
+const breakdownDims = computed(() => {
+  const bd = props.resume?.score_breakdown ?? {}
+  return [
+    { key: 'skills',           label: 'Skills',           icon: '⚡', color: '#4f46e5', value: bd.skills           ?? 0 },
+    { key: 'responsibilities', label: 'Responsibilities', icon: '📋', color: '#0ea5e9', value: bd.responsibilities  ?? 0 },
+    { key: 'certifications',   label: 'Certifications',   icon: '🏅', color: '#f59e0b', value: bd.certifications    ?? 0 },
+    { key: 'projects',         label: 'Projects',         icon: '🗂️', color: '#10b981', value: bd.projects          ?? 0 },
+    { key: 'education',        label: 'Education',        icon: '🎓', color: '#8b5cf6', value: bd.education         ?? 0 },
+    { key: 'experience',       label: 'Experience',       icon: '💼', color: '#6366f1', value: bd.experience        ?? 0 },
+    { key: 'overview',         label: 'Overview (F1)',    icon: '🏢', color: '#06b6d4', value: Number(overviewAvgScore.value) },
+  ]
+})
 
 function scoreClass(v) {
   if (v >= 70) return 'high'

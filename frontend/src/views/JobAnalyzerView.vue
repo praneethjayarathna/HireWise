@@ -1,15 +1,9 @@
 <template>
   <div class="page">
-    <!-- Header -->
-    <nav class="navbar">
-      <span class="brand">HireWise</span>
-      <div class="nav-links">
-        <RouterLink to="/dashboard">Dashboard</RouterLink>
-        <RouterLink to="/jobs/analyze">Job Analyzer</RouterLink>
-        <RouterLink to="/resume/matcher">Resume Matcher</RouterLink>
-        <button class="btn-logout" @click="handleLogout">Logout</button>
-      </div>
-    </nav>
+    <AppNavbar @logout="handleLogout">
+      <RouterLink to="/dashboard">Dashboard</RouterLink>
+      <RouterLink to="/resume/matcher">Resume Matcher</RouterLink>
+    </AppNavbar>
 
     <main class="content">
       <h1>Job Description Analyzer</h1>
@@ -81,6 +75,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { analyzeJobDescription } from '@/api/jobs'
 import CategoryCard from '@/components/CategoryCard.vue'
+import AppNavbar from '@/components/AppNavbar.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -174,61 +169,6 @@ async function handleLogout() {
 .page {
   min-height: 100vh;
   background: linear-gradient(180deg, #f8fafc 0%, #f0f2f5 100%);
-}
-
-/* Navbar */
-.navbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1rem 2rem;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-  position: sticky;
-  top: 0;
-  z-index: 100;
-}
-
-.brand {
-  font-weight: 800;
-  font-size: 1.35rem;
-  color: #4f46e5;
-  letter-spacing: -0.02em;
-}
-
-.nav-links {
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
-}
-
-.nav-links a {
-  color: #6b7280;
-  text-decoration: none;
-  font-weight: 500;
-  font-size: 0.95rem;
-  transition: color 0.15s;
-}
-
-.nav-links a:hover {
-  color: #4f46e5;
-}
-
-.btn-logout {
-  padding: 0.5rem 1.25rem;
-  background: transparent;
-  color: #4f46e5;
-  border: 1.5px solid #4f46e5;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  font-weight: 600;
-  transition: all 0.2s;
-}
-
-.btn-logout:hover {
-  background: #4f46e5;
-  color: #fff;
 }
 
 /* Content */

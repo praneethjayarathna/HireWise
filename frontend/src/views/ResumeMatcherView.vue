@@ -1,17 +1,8 @@
 <template>
   <div class="page">
-    <!-- Header -->
-    <nav class="navbar">
-      <div class="nav-brand">
-        <img src="../assets/logo-new.png" alt="Logo" style="width: 50px; height: 50px; margin-top: 0%;" />
-        <span class="brand-name">HireWise</span>
-      </div>
-      <div class="nav-links">
-        <RouterLink to="/dashboard">Dashboard</RouterLink>
-        <!-- <RouterLink to="/jobs/analyze">Job Analyzer</RouterLink> -->
-        <button class="btn-logout" @click="handleLogout">Logout</button>
-      </div>
-    </nav>
+    <AppNavbar @logout="handleLogout">
+      <RouterLink to="/dashboard">Dashboard</RouterLink>
+    </AppNavbar>
 
     <main class="content">
       <h1>Resume Matcher</h1>
@@ -112,8 +103,8 @@
         {{ loading ? 'Analyzing...' : 'Compare Resume to Job' }}
       </button>
 
-      <!-- Similarity Scores -->
-      <section v-if="similarityScores" class="scores-section">
+      <!-- Score Breakdown -->
+      <section v-if="scoreBreakdown" class="scores-section">
         <!-- <div class="overall-score">
           <div class="score-circle" :class="overallScoreClass">
             <span class="score-value">{{ (similarityScores.overall * 100).toFixed(0) }}</span>
@@ -124,19 +115,19 @@
 
         <div class="category-scores">
           <div
-            v-for="cat in categories"
-            :key="cat.key"
+            v-for="dim in breakdownDims"
+            :key="dim.key"
             class="score-bar-card"
           >
             <div class="score-bar-header">
-              <span class="cat-icon">{{ cat.icon }}</span>
-              <span class="cat-label">{{ cat.label }}</span>
-              <span class="cat-score">{{ (getCategoryScore(cat.key) * 100).toFixed(0) }}%</span>
+              <span class="cat-icon">{{ dim.icon }}</span>
+              <span class="cat-label">{{ dim.label }}</span>
+              <span class="cat-score">{{ dim.value }}%</span>
             </div>
             <div class="score-bar-track">
               <div
                 class="score-bar-fill"
-                :style="{ width: `${getCategoryScore(cat.key) * 100}%`, backgroundColor: cat.color }"
+                :style="{ width: `${dim.value}%`, backgroundColor: dim.color }"
               />
             </div>
           </div>
@@ -401,8 +392,8 @@
       <section v-if="responsibilityAnalysis" class="responsibility-section">
         <h2 class="resp-title">Responsibilities vs Experience Analysis</h2>
 
-        <div class="resp-score-card" :class="getRespScoreClass(responsibilityAnalysis.score)">
-          <div class="resp-score-value">{{ responsibilityAnalysis.score }}%</div>
+        <div class="resp-score-card" :class="getRespScoreClass(respScorePct)">
+          <div class="resp-score-value">{{ respScorePct }}%</div>
           <div class="resp-score-label">Duties Match</div>
         </div>
 
@@ -472,15 +463,15 @@
 
         <div class="match-score-bar">
           <div class="match-score-header">
-            <span class="match-score-label">Overall Relevance</span>
-            <span class="match-score-value" :class="getCertScoreClass(certificationAnalysis.overall_match_score)">
-              {{ certificationAnalysis.overall_match_score }}%
+            <span class="match-score-label">Certification Match Score</span>
+            <span class="match-score-value" :class="getCertScoreClass(certQualityPct)">
+              {{ certQualityPct }}%
             </span>
           </div>
           <div class="match-bar-track">
             <div
               class="match-bar-fill"
-              :style="{ width: certificationAnalysis.overall_match_score + '%', backgroundColor: getCertBarColor(certificationAnalysis.overall_match_score) }"
+              :style="{ width: certQualityPct + '%', backgroundColor: getCertBarColor(certQualityPct) }"
             />
           </div>
           <p class="match-bar-subtitle">
@@ -529,15 +520,15 @@
 
         <div class="match-score-bar">
           <div class="match-score-header">
-            <span class="match-score-label">Overall Relevance</span>
-            <span class="match-score-value" :class="getCertScoreClass(projectAnalysis.overall_match_score)">
-              {{ projectAnalysis.overall_match_score }}%
+            <span class="match-score-label">Project Match Score</span>
+            <span class="match-score-value" :class="getCertScoreClass(projQualityPct)">
+              {{ projQualityPct }}%
             </span>
           </div>
           <div class="match-bar-track">
             <div
               class="match-bar-fill"
-              :style="{ width: projectAnalysis.overall_match_score + '%', backgroundColor: getCertBarColor(projectAnalysis.overall_match_score) }"
+              :style="{ width: projQualityPct + '%', backgroundColor: getCertBarColor(projQualityPct) }"
             />
           </div>
           <p class="match-bar-subtitle">
@@ -554,6 +545,7 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { analyzeJobDescription, analyzeResume } from '@/api/jobs'
+import AppNavbar from '@/components/AppNavbar.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -571,6 +563,7 @@ const responsibilityAnalysis = ref(null)
 const certificationAnalysis = ref(null)
 const projectAnalysis = ref(null)
 const similarityScores = ref(null)
+const scoreBreakdown = ref(null)
 const overviewMatches = ref(null)
 const overviewF1Score = ref(null)
 const loading = ref(false)
@@ -579,11 +572,18 @@ const error = ref('')
 const jdDragging = ref(false)
 const resumeDragging = ref(false)
 
-const categories = [
-  { key: 'overview', label: 'Overview', icon: '🏢', color: '#6366f1' },
-  { key: 'skills', label: 'Skills', icon: '⚡', color: '#f59e0b' },
-  { key: 'responsibilities', label: 'Responsibilities', icon: '📋', color: '#0ea5e9' },
-]
+const breakdownDims = computed(() => {
+  const bd = scoreBreakdown.value ?? {}
+  return [
+    { key: 'skills',           label: 'Skills',           icon: '⚡', color: '#4f46e5', value: bd.skills           ?? 0 },
+    { key: 'responsibilities', label: 'Responsibilities', icon: '📋', color: '#0ea5e9', value: bd.responsibilities  ?? 0 },
+    { key: 'certifications',   label: 'Certifications',   icon: '🏅', color: '#f59e0b', value: bd.certifications    ?? 0 },
+    { key: 'projects',         label: 'Projects',         icon: '🗂️', color: '#10b981', value: bd.projects          ?? 0 },
+    { key: 'education',        label: 'Education',        icon: '🎓', color: '#8b5cf6', value: bd.education         ?? 0 },
+    { key: 'experience',       label: 'Experience',       icon: '💼', color: '#6366f1', value: bd.experience        ?? 0 },
+    { key: 'overview',         label: 'Overview (F1)',    icon: '🏢', color: '#06b6d4', value: Number(overviewAvgScore.value) },
+  ]
+})
 
 const jdFileIcon = computed(() => {
   if (!jdFile.value) return ''
@@ -614,6 +614,10 @@ const overallScoreClass = computed(() => {
   if (score >= 0.4) return 'medium'
   return 'low'
 })
+
+const certQualityPct = computed(() => Math.round((certificationAnalysis.value?.quality_score ?? 0) * 100))
+const projQualityPct = computed(() => Math.round((projectAnalysis.value?.quality_score ?? 0) * 100))
+const respScorePct   = computed(() => Math.round((responsibilityAnalysis.value?.mean_similarity ?? 0) * 100))
 
 const overviewAvgScore = computed(() => {
   if (overviewF1Score.value != null) return (overviewF1Score.value * 100).toFixed(0)
@@ -692,6 +696,7 @@ function clearJd() {
 function clearResume() {
   resumeFile.value = null
   similarityScores.value = null
+  scoreBreakdown.value = null
   overviewMatches.value = null
   overviewF1Score.value = null
   skillAnalysis.value = null
@@ -716,6 +721,7 @@ async function analyze() {
   loading.value = true
   error.value = ''
   similarityScores.value = null
+  scoreBreakdown.value = null
   overviewMatches.value = null
   overviewF1Score.value = null
   skillAnalysis.value = null
@@ -727,6 +733,7 @@ async function analyze() {
   try {
     const { data } = await analyzeResume(resumeFile.value, jobDescriptionResult.value)
     similarityScores.value = data.similarity_scores
+    scoreBreakdown.value = data.score_breakdown ?? null
     overviewMatches.value = data.overview_matches
     overviewF1Score.value = data.overview_f1_score ?? null
     skillAnalysis.value = data.skill_analysis
@@ -767,18 +774,6 @@ function getExpClass(levelValue) {
   return 'entry'
 }
 
-function getCategoryScore(key) {
-  if (key === 'overview' && overviewMatches.value?.length) {
-    return parseFloat(overviewAvgScore.value) / 100
-  }
-  if (key === 'skills' && skillAnalysis.value) {
-    return skillAnalysis.value.match_rate / 100
-  }
-  if (key === 'responsibilities' && responsibilityAnalysis.value) {
-    return responsibilityAnalysis.value.score / 100
-  }
-  return 0
-}
 
 function getRespScoreClass(score) {
   if (!score) return ''
@@ -817,79 +812,6 @@ function getCertBarColor(score) {
 .page {
   min-height: 100vh;
   background: var(--slate-50, #f8fafc);
-}
-
-.navbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 2rem;
-  height: 60px;
-  background: rgba(255,255,255,0.88);
-  backdrop-filter: blur(16px);
-  border-bottom: 1px solid #e2e8f0;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  font-weight: 800;
-  font-size: 1.1rem;
-  color: #1e1b4b;
-  letter-spacing: -0.02em;
-}
-
-.brand::before {
-  content: 'H';
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  background: linear-gradient(135deg, #4f46e5, #6366f1);
-  border-radius: 7px;
-  font-size: 0.9rem;
-  font-weight: 900;
-  color: #fff;
-}
-
-.nav-links {
-  display: flex;
-  align-items: center;
-  gap: 1.25rem;
-}
-
-.nav-links a {
-  color: #64748b;
-  text-decoration: none;
-  font-weight: 500;
-  font-size: 0.9rem;
-  transition: color 0.15s;
-}
-
-.nav-links a:hover {
-  color: #4f46e5;
-}
-
-.btn-logout {
-  padding: 0.4rem 0.9rem;
-  background: transparent;
-  color: #4f46e5;
-  border: 1.5px solid #c7d2fe;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 0.82rem;
-  font-weight: 600;
-  transition: all 0.2s;
-}
-
-.btn-logout:hover {
-  background: #eef2ff;
-  border-color: #4f46e5;
 }
 
 .content {

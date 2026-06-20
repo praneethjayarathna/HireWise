@@ -1,17 +1,7 @@
 <template>
   <div class="dashboard">
 
-    <!-- Navbar -->
-    <nav class="navbar">
-      <div class="nav-brand">
-        <img src="../assets/logo-new.png" alt="Logo" style="width: 50px; height: 50px; margin-top: 0%;" />
-        <span class="brand-name">HireWise</span>
-      </div>
-      <div class="nav-right">
-        <!-- <span v-if="auth.user" class="nav-user">{{ auth.user.username }}</span> -->
-        <button class="btn-logout" @click="handleLogout">Sign out</button>
-      </div>
-    </nav>
+    <AppNavbar @logout="handleLogout" />
 
     <main class="main">
 
@@ -84,6 +74,7 @@
 import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import AppNavbar from '@/components/AppNavbar.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -108,36 +99,6 @@ async function handleLogout() {
   min-height: 100vh;
   background: var(--slate-50, #f8fafc);
 }
-
-/* ── Navbar ──────────────────────────────────────────────────────────────── */
-.navbar {
-  position: sticky; top: 0; z-index: 100;
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0 2rem; height: 60px;
-  background: rgba(255,255,255,0.85);
-  backdrop-filter: blur(16px);
-  border-bottom: 1px solid #e2e8f0;
-}
-
-.nav-brand { display: flex; align-items: center; gap: 0.6rem; }
-.logo-mark {
-  width: 32px; height: 32px;
-  background: linear-gradient(135deg, #4f46e5, #6366f1);
-  border-radius: 8px; display: flex; align-items: center; justify-content: center;
-  font-size: 1rem; font-weight: 900; color: #fff;
-}
-.brand-name { font-size: 1.15rem; font-weight: 800; color: #1e1b4b; letter-spacing: -0.02em; }
-
-.nav-right { display: flex; align-items: center; gap: 1rem; }
-.nav-user  { font-size: 0.875rem; font-weight: 500; color: #64748b; }
-
-.btn-logout {
-  padding: 0.4rem 1rem; background: transparent;
-  color: #4f46e5; border: 1.5px solid #c7d2fe; border-radius: 8px;
-  font-size: 0.85rem; font-weight: 600; cursor: pointer;
-  transition: all 0.2s;
-}
-.btn-logout:hover { background: #eef2ff; border-color: #4f46e5; }
 
 /* ── Main ────────────────────────────────────────────────────────────────── */
 .main { max-width: 900px; margin: 0 auto; padding: 3rem 1.5rem 4rem; }

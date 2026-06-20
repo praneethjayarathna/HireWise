@@ -1618,6 +1618,7 @@ def _semantic_compare_duties(
             "unmatched_responsibilities": responsibilities or [],
             "explanation": "Could not extract duties or experience to compare",
             "score": 0,
+            "max_sims_per_duty": [0.0] * len(responsibilities),
         }
 
     model = _get_model()
@@ -1675,6 +1676,11 @@ def _semantic_compare_duties(
 
     score = round(len(matched) / len(responsibilities) * 100, 1) if responsibilities else 0
 
+    # Best-match similarity per JD duty (no threshold — used for scoring)
+    max_sims_per_duty = [
+        float(np.max(similarity_matrix[i])) for i in range(len(responsibilities))
+    ]
+
     if score >= 80:
         explanation = f"Excellent match ({score}%): Resume demonstrates strong alignment with most job responsibilities."
     elif score >= 60:
@@ -1693,6 +1699,7 @@ def _semantic_compare_duties(
         "unmatched_responsibilities": unmatched,
         "explanation": explanation,
         "score": score,
+        "max_sims_per_duty": max_sims_per_duty,
     }
 
 
@@ -1724,6 +1731,7 @@ def compare_responsibilities(
     # --- Pass 2: match remaining duties against project descriptions ---
     matched_via_proj: List[Dict[str, any]] = []
     still_unmatched = unmatched_after_exp
+    proj_comparison: Optional[Dict[str, any]] = None
 
     if unmatched_after_exp and projects:
         project_items = [
@@ -1748,24 +1756,36 @@ def compare_responsibilities(
     exp_score = exp_comparison["score"]
     effective_score = round((len(matched_via_exp) + len(matched_via_proj)) / total * 100, 1) if total else 0
 
-    # Mean cosine similarity across ALL JD duties — matched duties contribute
-    # their actual similarity score; unmatched duties contribute 0. This
-    # captures both coverage and match quality in a single number (0–1).
-    matched_sims = (
-        [m["similarity"] for m in matched_via_exp]
-        + [m["similarity"] for m in matched_via_proj]
-    )
-    mean_similarity = round(sum(matched_sims) / total, 3) if total else 0.0
+    # Threshold-free mean similarity: for each JD duty take its best-match
+    # similarity to any resume line (experience or project), then average.
+    # No hard cut-off — every duty contributes its actual best score so
+    # partial relevance is captured and the result is a smooth 0–1 signal.
+    exp_max_sims: List[float] = exp_comparison.get("max_sims_per_duty", [0.0] * total)
 
-    # Build explanation using the effective score
-    if effective_score >= 80:
-        explanation = f"Excellent match ({effective_score}%): Strong coverage across work experience and projects."
-    elif effective_score >= 60:
-        explanation = f"Good match ({effective_score}%): Most responsibilities covered through experience and/or projects."
-    elif effective_score >= 40:
-        explanation = f"Partial match ({effective_score}%): Some alignment found; projects supplement work experience."
+    # For duties that were unmatched after Pass 1, check if projects improve them.
+    final_max_sims = list(exp_max_sims)
+    if proj_comparison is not None:
+        proj_max_sims: List[float] = proj_comparison.get("max_sims_per_duty", [])
+        if proj_max_sims:
+            unmatched_set = set(unmatched_after_exp)
+            unmatched_orig_idx = [
+                i for i, r in enumerate(job_responsibilities) if r in unmatched_set
+            ]
+            for orig_idx, proj_sim in zip(unmatched_orig_idx, proj_max_sims):
+                final_max_sims[orig_idx] = max(final_max_sims[orig_idx], proj_sim)
+
+    mean_similarity = round(sum(final_max_sims) / total, 3) if total else 0.0
+
+    # Build explanation using the threshold-free mean_similarity (consistent with score breakdown)
+    mean_pct = round(mean_similarity * 100, 1)
+    if mean_pct >= 80:
+        explanation = f"Excellent match ({mean_pct}%): Strong coverage across work experience and projects."
+    elif mean_pct >= 60:
+        explanation = f"Good match ({mean_pct}%): Most responsibilities covered through experience and/or projects."
+    elif mean_pct >= 40:
+        explanation = f"Partial match ({mean_pct}%): Some alignment found; projects supplement work experience."
     else:
-        explanation = f"Low match ({effective_score}%): Limited alignment with job responsibilities."
+        explanation = f"Low match ({mean_pct}%): Limited alignment with job responsibilities."
 
     if matched_via_exp:
         sample = "; ".join(m["job_duty"][:50] for m in matched_via_exp[:2])
@@ -2487,6 +2507,8 @@ def compare_certifications_with_job(
             "overall_match_score": 0,
             "total_certifications": 0,
             "jd_requires_certs": jd_requires_certs,
+            "coverage_score": 0.0,
+            "relevance_score": 0.0,
             "quality_score": 0.0 if jd_requires_certs else 0.5,
             "summary": "No certifications found in the resume.",
         }
@@ -2548,7 +2570,10 @@ def compare_certifications_with_job(
     )
     job_sentences = [
         s.strip() for s in re.split(r'[.\n]', job_text)
-        if len(s.strip()) > 15 and _qual_trigger.search(s)
+        if len(s.strip()) > 30           # exclude very short fragments / headers
+        and len(s.strip().split()) >= 6  # must have enough words to be a real sentence
+        and not s.strip().isupper()      # exclude ALL-CAPS section headers
+        and _qual_trigger.search(s)
     ]
 
     qualification_matches: List[Dict[str, any]] = []
@@ -2572,19 +2597,56 @@ def compare_certifications_with_job(
     high_relevance = sum(1 for c in certification_skills_map if c["has_relevance"])
     overall_match_score = round(high_relevance / len(resume_certs) * 100, 1) if resume_certs else 0
 
-    # Quality-weighted score (0–1): average of each cert's mean top-3 skill
-    # similarity. Bonus for certs that satisfy stated JD requirements.
-    cert_quality_scores = []
-    for c_map in certification_skills_map:
-        rel = c_map.get("related_skills", [])
-        if rel:
-            top3 = sorted([s["similarity_score"] for s in rel], reverse=True)[:3]
-            cert_quality_scores.append(sum(top3) / len(top3))
-        else:
-            cert_quality_scores.append(0.05)  # cert exists but no JD skill overlap
-    quality_score = sum(cert_quality_scores) / len(cert_quality_scores) if cert_quality_scores else 0.0
-    qual_bonus = min(0.15, 0.05 * len(qualification_matches))
-    quality_score = round(min(1.0, quality_score + qual_bonus), 3)
+    # ── Bipartite SBERT Coverage scoring ─────────────────────────────────────
+    #
+    # Relevance component: for each candidate cert, find its maximum cosine
+    # similarity to any JD skill. The mean across all certs measures how
+    # domain-relevant the candidate's certifications are.
+    if job_all_skill_names:
+        # skill_sim shape: (n_certs, n_skills) — already computed above
+        max_skill_sims = skill_sim.max(axis=1)          # (n_certs,)
+        relevance_score = float(max_skill_sims.mean())
+    else:
+        relevance_score = 0.5                           # no JD skills → neutral
+
+    # Coverage component: greedy bipartite matching of JD cert-requirement
+    # sentences to candidate cert names. Each JD requirement is matched to the
+    # best available (unused) cert. Similarities below _COV_MIN contribute 0,
+    # so unmatched JD requirements penalise the coverage score.
+    _COV_MIN = 0.35
+    if job_sentences:
+        # qual_sim shape: (n_certs, n_qual_sentences) → transpose for JD-centric view
+        jd_req_sim = qual_sim.T                         # (n_qual_sentences, n_certs)
+        n_jd_reqs  = len(job_sentences)
+        used_certs: Set[int] = set()
+        matched_sim_sum = 0.0
+
+        for j in range(n_jd_reqs):
+            # candidates not yet assigned
+            available = [
+                (float(jd_req_sim[j, i]), i)
+                for i in range(len(resume_certs))
+                if i not in used_certs
+            ]
+            if not available:
+                break
+            best_sim, best_i = max(available, key=lambda x: x[0])
+            if best_sim >= _COV_MIN:
+                matched_sim_sum += best_sim
+                used_certs.add(best_i)
+            # requirements below threshold contribute 0 to the sum
+
+        coverage_score = matched_sim_sum / n_jd_reqs
+    else:
+        coverage_score = 0.0                            # JD states no cert requirements
+
+    # Final quality_score:
+    #   JD has cert requirement sentences → weighted blend (coverage drives the score)
+    #   JD has no cert requirements       → relevance only (nothing specific to cover)
+    if job_sentences:
+        quality_score = round(0.70 * coverage_score + 0.30 * relevance_score, 3)
+    else:
+        quality_score = round(relevance_score, 3)
 
     return {
         "certifications": [
@@ -2597,12 +2659,14 @@ def compare_certifications_with_job(
         "total_certifications": len(resume_certs),
         "relevant_certifications": high_relevance,
         "jd_requires_certs": jd_requires_certs,
+        "coverage_score": round(coverage_score, 3),
+        "relevance_score": round(relevance_score, 3),
         "quality_score": quality_score,
         "summary": (
             f"Found {len(resume_certs)} certification(s). "
             f"{high_relevance} relate to skills sought by the job ({overall_match_score}% relevance)."
-            + (f" {len(qualification_matches)} satisfy stated qualification requirement(s)."
-               if qualification_matches else "")
+            + (f" Coverage: {round(coverage_score * 100, 1)}% of JD cert requirements matched."
+               if job_sentences else "")
         ),
     }
 
@@ -2630,6 +2694,8 @@ def compare_projects_with_job(
             "responsibility_matches": [],
             "overall_match_score": 0,
             "total_projects": 0,
+            "coverage_score": 0.0,
+            "relevance_score": 0.0,
             "quality_score": 0.0,
             "summary": "No projects found in the resume.",
         }
@@ -2712,10 +2778,36 @@ def compare_projects_with_job(
     high_relevance = sum(1 for p in projects_skills_map if p["has_relevance"])
     overall_match_score = round(high_relevance / len(resume_projects) * 100, 1) if resume_projects else 0
 
-    # Average of each project's max-skill similarity — captures both how many
-    # projects are relevant AND how strongly they align with JD skills.
-    proj_quality_vals = [p.get("quality_score", 0.0) for p in projects_skills_map]
-    quality_score = round(sum(proj_quality_vals) / len(proj_quality_vals), 3) if proj_quality_vals else 0.0
+    # ── Bipartite SBERT Coverage scoring ─────────────────────────────────────
+    #
+    # Relevance: for each project, its max cosine similarity to any JD skill.
+    # Mean across projects measures overall skill-domain fit.
+    if job_all_skill_names:
+        # skill_sim shape: (n_projects, n_skills) — already computed above
+        max_skill_sims = skill_sim.max(axis=1)           # (n_projects,)
+        relevance_score = float(max_skill_sims.mean())
+    else:
+        relevance_score = 0.5                            # no JD skills → neutral
+
+    # Coverage: for each project, its max cosine similarity to any JD
+    # responsibility sentence. Mean across projects measures how well the
+    # portfolio collectively demonstrates what the job requires in practice.
+    # We match project→responsibility (not JD→project) so a small number of
+    # projects is not unfairly penalised against many JD duty sentences.
+    if job_resp_sentences:
+        # resp_sim shape: (n_projects, n_resp) — already computed above
+        max_resp_sims = resp_sim.max(axis=1)             # (n_projects,)
+        coverage_score = float(max_resp_sims.mean())
+    else:
+        coverage_score = 0.0
+
+    # Final quality_score:
+    #   JD has responsibility sentences → coverage (60%) drives; relevance (40%) supports
+    #   No JD responsibilities found   → relevance only
+    if job_resp_sentences:
+        quality_score = round(0.60 * coverage_score + 0.40 * relevance_score, 3)
+    else:
+        quality_score = round(relevance_score, 3)
 
     return {
         "projects": [
@@ -2727,11 +2819,13 @@ def compare_projects_with_job(
         "overall_match_score": overall_match_score,
         "total_projects": len(resume_projects),
         "relevant_projects": high_relevance,
+        "coverage_score": round(coverage_score, 3),
+        "relevance_score": round(relevance_score, 3),
         "quality_score": quality_score,
         "summary": (
             f"Found {len(resume_projects)} project(s). "
             f"{high_relevance} relate to skills sought by the job ({overall_match_score}% relevance)."
-            + (f" {len(responsibility_matches)} project(s) directly address job responsibilities."
-               if responsibility_matches else "")
+            + (f" Responsibility coverage: {round(coverage_score * 100, 1)}%."
+               if job_resp_sentences else "")
         ),
     }
