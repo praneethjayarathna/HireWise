@@ -2,7 +2,10 @@
   <div class="page">
     <!-- Header -->
     <nav class="navbar">
-      <span class="brand">HireWise</span>
+      <div class="nav-brand">
+        <img src="../assets/logo-new.png" alt="Logo" style="width: 50px; height: 50px; margin-top: 0%;" />
+        <span class="brand-name">HireWise</span>
+      </div>
       <div class="nav-links">
         <RouterLink to="/dashboard">Dashboard</RouterLink>
         <!-- <RouterLink to="/jobs/analyze">Job Analyzer</RouterLink> -->

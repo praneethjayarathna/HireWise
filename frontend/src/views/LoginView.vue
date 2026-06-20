@@ -5,11 +5,12 @@
     <div class="brand-panel">
       <div class="brand-content">
         <div class="brand-logo">
-          <span class="logo-mark">H</span>
+          <!-- <span class="logo-mark">H</span> -->
+           <img src="../assets/logo-new.png" alt="Logo" style="width: 50px; height: 50px; margin-top: 0%;" />
           <span class="logo-name">HireWise</span>
         </div>
         <h1 class="brand-headline">Hire smarter with AI-powered screening</h1>
-        <p class="brand-sub">Match resumes to job descriptions semantically — not just by keywords.</p>
+        <p class="brand-sub">Match resumes to job descriptions semantically - not just by keywords.</p>
         <ul class="brand-features">
           <li><span class="feat-dot" />Semantic skill &amp; responsibility matching</li>
           <li><span class="feat-dot" />Rank multiple resumes in one session</li>

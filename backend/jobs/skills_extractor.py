@@ -1086,6 +1086,55 @@ _MONTH_RE = r'(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|
 _SEP_RE = r'\s*[-–—]\s*'
 _PRESENT_RE = r'(?:present|current|now|till date|to date)'
 
+# Keywords that mark the start of an education section in a resume.
+_EDU_HEADER_RE = re.compile(
+    r'^\s*(education|educational\s+background|academic\s+background'
+    r'|academic\s+qualifications?|qualifications?)\s*$',
+    re.IGNORECASE,
+)
+# Keywords that signal the end of an education section (next section starting).
+_POST_EDU_SECTION_RE = re.compile(
+    r'^\s*(work\s+experience|professional\s+experience|employment|career|experience'
+    r'|skills?|certifications?|projects?|publications?|references?|achievements?'
+    r'|awards?|summary|profile|objective|activities|interests?|hobbies?|languages?)\s*',
+    re.IGNORECASE,
+)
+# Per-line markers that indicate an educational context (used as fallback guard).
+_EDU_LINE_RE = re.compile(
+    r'\b(bachelor|master|phd|ph\.d|doctorate|degree|diploma|b\.sc|m\.sc|b\.eng|m\.eng'
+    r'|bsc|msc|gpa|cgpa|honours|honors|university|college|school|institute|faculty'
+    r'|g\.c\.e|gce|a/l|o/l|advanced\s+level|ordinary\s+level|higher\s+national)\b',
+    re.IGNORECASE,
+)
+
+_WORK_EXP_DATE_KEYWORDS = [
+    "work experience", "professional experience", "employment history",
+    "work history", "career history", "experience",
+    "engineering experience", "technical experience",
+]
+_EDU_STOP_WORDS = [
+    "education", "educational background", "academic background",
+    "academic qualifications", "certifications", "skills",
+    "projects", "publications", "references",
+]
+
+
+def _remove_edu_section_from_text(text: str) -> str:
+    """Return resume text with the education section removed."""
+    lines = text.splitlines()
+    result: List[str] = []
+    in_edu = False
+    for line in lines:
+        stripped = line.strip()
+        if _EDU_HEADER_RE.match(stripped):
+            in_edu = True
+            continue
+        if in_edu and stripped and _POST_EDU_SECTION_RE.match(stripped):
+            in_edu = False
+        if not in_edu:
+            result.append(line)
+    return "\n".join(result)
+
 
 def _years_from_level(years: float) -> str:
     if years >= 10:
@@ -1105,18 +1154,32 @@ def _years_from_level(years: float) -> str:
 
 def _extract_experience_from_dates(text: str) -> Optional[Dict[str, any]]:
     """
-    Calculate total work experience from employment date ranges found in the text.
+    Calculate total *industry* work experience from employment date ranges.
 
-    Handles formats such as:
-      • "Jan 2019 – Mar 2023"
-      • "2019 – 2023"
-      • "March 2020 - Present"
-      • "2018 to present"
+    Strategy:
+    1. Prefer scanning only the work-experience section so that education
+       date ranges (e.g. "2014 – 2018" for a Bachelor's degree) are never
+       included in the count.
+    2. If no dedicated work-experience section is found, fall back to the
+       full resume text but with the education section removed.
+    3. As a final per-match guard, skip year-only ranges (Pattern 2) whose
+       surrounding context contains education keywords (university, degree…).
     """
     current_year = datetime.datetime.now().year
     current_month = datetime.datetime.now().month
 
-    text_lower = text.lower()
+    # -- Choose the text to scan ------------------------------------------------
+    work_lines = _extract_section_lines(
+        text, _WORK_EXP_DATE_KEYWORDS,
+        stop_words=_EDU_STOP_WORDS, min_len=5, fallback=False,
+    )
+    if work_lines:
+        scan_text = "\n".join(work_lines)
+    else:
+        # Remove the education section before scanning the rest of the resume.
+        scan_text = _remove_edu_section_from_text(text)
+
+    text_lower = scan_text.lower()
     total_months = 0
     ranges_found: List[str] = []
     seen_starts: Set[Tuple[int, int]] = set()
@@ -1147,12 +1210,19 @@ def _extract_experience_from_dates(text: str) -> Optional[Dict[str, any]]:
         ranges_found.append(m.group(0))
 
     # Pattern 2: "YYYY – YYYY"
+    # Extra guard: skip if the surrounding line contains education markers.
     year_range_re = re.compile(r'\b(\d{4})\s*[-–—]\s*(\d{4})\b')
     for m in year_range_re.finditer(text_lower):
         sy, ey = int(m.group(1)), int(m.group(2))
         if not (1970 <= sy <= current_year and sy < ey <= current_year + 1):
             continue
         if ey - sy > 50:
+            continue
+        # Check surrounding context (±200 chars) for education markers.
+        ctx_start = max(0, m.start() - 200)
+        ctx_end = min(len(text_lower), m.end() + 200)
+        ctx = text_lower[ctx_start:ctx_end]
+        if _EDU_LINE_RE.search(ctx):
             continue
         key = (sy, 1)
         if key in seen_starts:
@@ -1329,18 +1399,23 @@ def extract_experience_requirement(text: str) -> Dict[str, any]:
 
 def extract_experience_from_resume(text: str) -> Dict[str, any]:
     """
-    Extract total experience from a resume.
+    Extract stated industry experience from a resume.
 
-    Prefers date-range calculation (e.g. '2019-2023') over keyword matching,
-    because resumes contain work history dates rather than phrases like
-    '5+ years of experience'.
+    Only counts explicitly stated experience (e.g. "5+ years of experience").
+    Date ranges are intentionally NOT used to infer years — candidates who do
+    not explicitly state their experience are treated as Entry Level (0 years).
     """
-    date_result = _extract_experience_from_dates(text)
-    if date_result:
-        return date_result
-
-    # Fallback: look for explicit year statements
-    return extract_experience_requirement(text)
+    result = extract_experience_requirement(text)
+    if result.get("level_value"):
+        return result
+    entry = "Entry Level (0-1 years)"
+    return {
+        "required_years": 0,
+        "years_text": "0 years (not stated)",
+        "level": entry,
+        "level_value": EXPERIENCE_LEVELS[entry],
+        "context": "No explicit experience statement found in resume",
+    }
 
 
 def compare_experience(job_text: str, resume_text: str) -> Dict[str, any]:

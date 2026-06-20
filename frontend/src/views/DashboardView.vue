@@ -4,11 +4,11 @@
     <!-- Navbar -->
     <nav class="navbar">
       <div class="nav-brand">
-        <span class="logo-mark">H</span>
+        <img src="../assets/logo-new.png" alt="Logo" style="width: 50px; height: 50px; margin-top: 0%;" />
         <span class="brand-name">HireWise</span>
       </div>
       <div class="nav-right">
-        <span v-if="auth.user" class="nav-user">{{ auth.user.username }}</span>
+        <!-- <span v-if="auth.user" class="nav-user">{{ auth.user.username }}</span> -->
         <button class="btn-logout" @click="handleLogout">Sign out</button>
       </div>
     </nav>
@@ -38,7 +38,7 @@
             <div class="card-pills">
               <span class="pill">Multi-resume ranking</span>
               <span class="pill">Explainable AI</span>
-              <span class="pill">Projects &amp; certs</span>
+              <!-- <span class="pill">Projects &amp; certs</span> -->
             </div>
           </div>
           <span class="card-arrow">→</span>
@@ -49,11 +49,11 @@
           <div class="card-icon-wrap secondary-icon">📊</div>
           <div class="card-body">
             <h2 class="card-title">Single Resume Matcher</h2>
-            <p class="card-desc">Deep-dive analysis of one resume against a job description — sentence-level overview, skills, education, experience.</p>
-            <div class="card-pills">
+            <p class="card-desc">Deep-dive analysis of one resume against a job description - sentence-level overview, skills, education, experience.</p>
+            <!-- <div class="card-pills">
               <span class="pill">Skill gap analysis</span>
               <span class="pill">Education check</span>
-            </div>
+            </div> -->
           </div>
           <span class="card-arrow">→</span>
         </RouterLink>
@@ -64,7 +64,7 @@
       <div class="info-row">
         <div class="info-chip">
           <span class="info-icon">⚡</span>
-          <span>SBERT semantic matching — goes beyond keyword search</span>
+          <span>SBERT semantic matching - goes beyond keyword search</span>
         </div>
         <div class="info-chip">
           <span class="info-icon">🎯</span>

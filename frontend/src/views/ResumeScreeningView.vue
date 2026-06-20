@@ -4,7 +4,7 @@
     <!-- Navbar -->
     <nav class="navbar">
       <div class="nav-brand">
-        <span class="logo-mark">H</span>
+        <img src="../assets/logo-new.png" alt="Logo" style="width: 50px; height: 50px; margin-top: 0%;" />
         <span class="brand-name">HireWise</span>
       </div>
       <div class="nav-links">
@@ -593,4 +593,6 @@ async function handleLogout() {
   .rank-filename { max-width: 160px; }
   .rank-score { min-width: 56px; }
 }
+
+.brand-name { font-size: 1.15rem; font-weight: 800; color: #1e1b4b; letter-spacing: -0.02em; }
 </style>
