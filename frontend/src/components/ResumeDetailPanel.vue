@@ -186,7 +186,6 @@
                 <h4 class="info-card-title"><span>📋</span> Job Requirement</h4>
                 <div v-if="edu.job_highest" class="edu-details">
                   <span class="level-badge" :class="levelClass(edu.job_highest.level_value)">{{ edu.job_highest.level }}</span>
-                  <div v-if="edu.job_highest.major" class="kv"><span class="kv-key">Major</span><span class="kv-val">{{ edu.job_highest.major }}</span></div>
                   <div class="tag-list" style="margin-top:0.5rem">
                     <span v-for="m in edu.job_majors" :key="m" class="tag job-major">{{ m }}</span>
                   </div>
@@ -197,7 +196,7 @@
                 <h4 class="info-card-title"><span>📄</span> Resume Qualification</h4>
                 <div v-if="edu.resume_highest" class="edu-details">
                   <span class="level-badge" :class="levelClass(edu.resume_highest.level_value)">{{ edu.resume_highest.level }}</span>
-                  <div v-if="edu.resume_highest.major" class="kv"><span class="kv-key">Major</span><span class="kv-val">{{ edu.resume_highest.major }}</span></div>
+                  <p v-if="edu.resume_highest.context" class="edu-degree-name">{{ edu.resume_highest.context }}</p>
                   <div class="tag-list" style="margin-top:0.5rem">
                     <span v-for="m in edu.resume_majors" :key="m" class="tag res-major">{{ m }}</span>
                   </div>
@@ -662,6 +661,7 @@ function barColor(v) {
 }
 .info-card-title { display: flex; align-items: center; gap: 0.4rem; font-size: 0.875rem; font-weight: 700; margin: 0 0 0.75rem; color: #0f172a; }
 .edu-details { display: flex; flex-direction: column; gap: 0.5rem; }
+.edu-degree-name { margin: 0; font-size: 0.8rem; color: #475569; line-height: 1.4; }
 .kv { display: flex; flex-direction: column; gap: 0.15rem; }
 .kv-key { font-size: 0.68rem; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
 .kv-val { font-size: 0.85rem; color: #0f172a; font-weight: 600; }

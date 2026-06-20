@@ -280,10 +280,6 @@
               <div class="edu-level-badge" :class="getLevelClass(educationAnalysis.job_highest.level_value)">
                 {{ educationAnalysis.job_highest.level }}
               </div>
-              <div v-if="educationAnalysis.job_highest.qualification_type" class="edu-detail">
-                <span class="edu-label">Type:</span>
-                <span class="edu-value">{{ educationAnalysis.job_highest.qualification_type }}</span>
-              </div>
               <div v-if="educationAnalysis.job_highest.major" class="edu-detail">
                 <span class="edu-label">Major:</span>
                 <span class="edu-value">{{ educationAnalysis.job_highest.major }}</span>
@@ -309,10 +305,7 @@
               <div class="edu-level-badge" :class="getLevelClass(educationAnalysis.resume_highest.level_value)">
                 {{ educationAnalysis.resume_highest.level }}
               </div>
-              <div v-if="educationAnalysis.resume_highest.qualification_type" class="edu-detail">
-                <span class="edu-label">Type:</span>
-                <span class="edu-value">{{ educationAnalysis.resume_highest.qualification_type }}</span>
-              </div>
+              <p v-if="educationAnalysis.resume_highest.context" class="edu-degree-name">{{ educationAnalysis.resume_highest.context }}</p>
               <div v-if="educationAnalysis.resume_highest.major" class="edu-detail">
                 <span class="edu-label">Major:</span>
                 <span class="edu-value">{{ educationAnalysis.resume_highest.major }}</span>
@@ -1551,6 +1544,13 @@ h1 {
 
 .column-icon {
   font-size: 1.25rem;
+}
+
+.edu-degree-name {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #475569;
+  line-height: 1.4;
 }
 
 .education-details {

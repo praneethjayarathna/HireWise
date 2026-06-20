@@ -721,8 +721,8 @@ EDUCATION_LEVEL_PATTERNS: Dict[str, List[str]] = {
         "advanced diploma", "higher diploma", "diploma in",
     ],
     "Certificate": [
-        "certificate", "certification", "certified", "certificate course",
-        "professional certificate", "nanodegree",
+        "certificate", "certificate course", "professional certificate",
+        "nanodegree",
     ],
 }
 
@@ -860,6 +860,29 @@ def extract_education(text: str) -> Dict[str, List[Dict[str, any]]]:
     _build_education_semantic_db()
 
     text_clean = text.replace("\r\n", "\n").replace("\r", "\n")
+
+    # Normalize dotted degree abbreviations before sentence splitting so that
+    # "B.Sc.", "M.Tech.", "Ph.D." etc. are not torn apart by the period splitter.
+    _degree_abbrev_re = [
+        (re.compile(r'\bB\.Sc\.?', re.I),   'BSc'),
+        (re.compile(r'\bM\.Sc\.?', re.I),   'MSc'),
+        (re.compile(r'\bB\.S\.?',  re.I),   'BS'),
+        (re.compile(r'\bM\.S\.?',  re.I),   'MS'),
+        (re.compile(r'\bB\.A\.?',  re.I),   'BA'),
+        (re.compile(r'\bM\.A\.?',  re.I),   'MA'),
+        (re.compile(r'\bB\.E\.?',  re.I),   'BE'),
+        (re.compile(r'\bM\.E\.?',  re.I),   'ME'),
+        (re.compile(r'\bPh\.D\.?', re.I),   'PhD'),
+        (re.compile(r'\bM\.B\.A\.?', re.I), 'MBA'),
+        (re.compile(r'\bB\.Tech\.?', re.I), 'BTech'),
+        (re.compile(r'\bM\.Tech\.?', re.I), 'MTech'),
+        (re.compile(r'\bB\.Eng\.?', re.I),  'BEng'),
+        (re.compile(r'\bM\.Eng\.?', re.I),  'MEng'),
+        (re.compile(r'\bD\.Sc\.?', re.I),   'DSc'),
+    ]
+    for pattern, replacement in _degree_abbrev_re:
+        text_clean = pattern.sub(replacement, text_clean)
+
     sentences = [s.strip() for s in re.split(r'[.!?\n]+', text_clean) if len(s.strip()) > 5]
 
     result: Dict[str, List[Dict[str, any]]] = {edu_type: [] for edu_type in EDUCATION_LEVEL_PATTERNS}
