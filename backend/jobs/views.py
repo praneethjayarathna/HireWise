@@ -1,3 +1,4 @@
+import json
 from rest_framework import status
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import IsAuthenticated
@@ -105,7 +106,7 @@ def _experience_graduated_score(exp: dict) -> float:
         return 0.15
 
 
-def _compute_rank_score(analysis: dict):
+def _compute_rank_score(analysis: dict, custom_weights: dict = None):
     """
     Composite ranking score (0–100) using similarity-weighted, graduated scoring.
 
@@ -117,7 +118,11 @@ def _compute_rank_score(analysis: dict):
       Certifications – quality-weighted relevance; neutral 0.5 when JD doesn't require
       Projects      – average max-skill-similarity per project
 
-    Weights (dynamic):
+    custom_weights (optional): dict with keys skills/responsibilities/education/
+      experience/certifications/projects as raw numbers (any scale); they are
+      normalised internally so they sum to 1.0.
+
+    Weights (dynamic, used when custom_weights is None):
       Default            Skills 35%  Duties 25%  Edu 13%  Exp 10%  Cert  8%  Proj  9%
       Entry-level JD     Skills 35%  Duties 18%  Edu 15%  Exp  5%  Cert  5%  Proj 22%
       Cert-required JD   Skills 31%  Duties 25%  Edu 12%  Exp 10%  Cert 12%  Proj 10%
@@ -172,16 +177,28 @@ def _compute_rank_score(analysis: dict):
     else:
         proj_score = max(0.0, min(1.0, proj.get('overall_match_score', 0) / 100.0))
 
-    # --- Dynamic weight selection ---
-    job_lv = (exp.get('job_experience', {}) or {}).get('level_value') or 0
-    cert_required = bool(cert.get('jd_requires_certs', False))
-
-    if job_lv <= 1:  # entry-level / fresh-graduate JD → projects matter more
-        w = {'skills': 0.35, 'resp': 0.18, 'edu': 0.15, 'exp': 0.05, 'cert': 0.05, 'proj': 0.22}
-    elif cert_required:
-        w = {'skills': 0.31, 'resp': 0.25, 'edu': 0.12, 'exp': 0.10, 'cert': 0.12, 'proj': 0.10}
+    # --- Weight selection ---
+    if custom_weights:
+        raw = {
+            'skills': float(custom_weights.get('skills', 35)),
+            'resp':   float(custom_weights.get('responsibilities', 25)),
+            'edu':    float(custom_weights.get('education', 13)),
+            'exp':    float(custom_weights.get('experience', 10)),
+            'cert':   float(custom_weights.get('certifications', 8)),
+            'proj':   float(custom_weights.get('projects', 9)),
+        }
+        total = sum(raw.values()) or 1.0
+        w = {k: v / total for k, v in raw.items()}
     else:
-        w = {'skills': 0.35, 'resp': 0.25, 'edu': 0.13, 'exp': 0.10, 'cert': 0.08, 'proj': 0.09}
+        job_lv = (exp.get('job_experience', {}) or {}).get('level_value') or 0
+        cert_required = bool(cert.get('jd_requires_certs', False))
+
+        if job_lv <= 1:
+            w = {'skills': 0.35, 'resp': 0.18, 'edu': 0.15, 'exp': 0.05, 'cert': 0.05, 'proj': 0.22}
+        elif cert_required:
+            w = {'skills': 0.31, 'resp': 0.25, 'edu': 0.12, 'exp': 0.10, 'cert': 0.12, 'proj': 0.10}
+        else:
+            w = {'skills': 0.35, 'resp': 0.25, 'edu': 0.13, 'exp': 0.10, 'cert': 0.08, 'proj': 0.09}
 
     composite = (
         skill_score * w['skills'] +
@@ -200,9 +217,17 @@ def _compute_rank_score(analysis: dict):
         'experience':       round(exp_score * 100, 1),
         'certifications':   round((float(cert_raw) if cert_raw is not None else 0.0) * 100, 1),
         'projects':         round(proj_score * 100, 1),
-        # Boolean flags kept for UI ✓/✗ badges
         'education_met':    bool(edu.get('meets_requirement', False)),
         'experience_met':   bool(exp.get('meets_requirement', False)),
+        # Applied weights (as percentages, rounded) for UI transparency
+        'weights': {
+            'skills':           round(w['skills'] * 100, 1),
+            'responsibilities': round(w['resp']   * 100, 1),
+            'education':        round(w['edu']    * 100, 1),
+            'experience':       round(w['exp']    * 100, 1),
+            'certifications':   round(w['cert']   * 100, 1),
+            'projects':         round(w['proj']   * 100, 1),
+        },
     }
     return rank_score, breakdown
 
@@ -350,6 +375,24 @@ class ResumeAnalyzeView(APIView):
         resp_serializer = ResponsibilityAnalysisSerializer(data=responsibility_analysis)
         resp_serializer.is_valid(raise_exception=True)
 
+        custom_weights = None
+        weights_raw = request.data.get('weights')
+        if weights_raw:
+            try:
+                custom_weights = json.loads(weights_raw)
+            except (json.JSONDecodeError, TypeError):
+                custom_weights = None
+
+        full_analysis = {
+            'skill_analysis': skill_serializer.validated_data,
+            'responsibility_analysis': resp_serializer.validated_data,
+            'education_analysis': edu_serializer.validated_data,
+            'experience_analysis': exp_serializer.validated_data,
+            'certification_analysis': certification_analysis,
+            'project_analysis': project_analysis,
+        }
+        rank_score, breakdown = _compute_rank_score(full_analysis, custom_weights=custom_weights)
+
         return Response(
             {
                 "categorized_resume": resume_serializer.validated_data,
@@ -362,6 +405,8 @@ class ResumeAnalyzeView(APIView):
                 "responsibility_analysis": resp_serializer.validated_data,
                 "certification_analysis": certification_analysis,
                 "project_analysis": project_analysis,
+                "rank_score": rank_score,
+                "score_breakdown": breakdown,
             },
             status=status.HTTP_200_OK,
         )
@@ -502,7 +547,15 @@ class UploadResumeToSessionView(APIView):
             "project_analysis": project_analysis,
         }
 
-        rank_score, breakdown = _compute_rank_score(full_analysis)
+        custom_weights = None
+        weights_raw = request.data.get('weights')
+        if weights_raw:
+            try:
+                custom_weights = json.loads(weights_raw)
+            except (json.JSONDecodeError, TypeError):
+                custom_weights = None
+
+        rank_score, breakdown = _compute_rank_score(full_analysis, custom_weights=custom_weights)
 
         resume_obj = ResumeAnalysis.objects.create(
             session=session,

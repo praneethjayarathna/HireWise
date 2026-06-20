@@ -82,6 +82,9 @@
             </button>
           </div>
 
+          <!-- Weight settings -->
+          <WeightSettingsPanel v-model="weights" />
+
           <!-- Upload bar -->
           <div
             class="upload-bar"
@@ -238,6 +241,7 @@ import { useAuthStore } from '@/stores/auth'
 import { createJobSession, uploadResumeToSession } from '@/api/jobs'
 import ResumeDetailPanel from '@/components/ResumeDetailPanel.vue'
 import AppNavbar from '@/components/AppNavbar.vue'
+import WeightSettingsPanel from '@/components/WeightSettingsPanel.vue'
 
 const auth   = useAuthStore()
 const router = useRouter()
@@ -254,6 +258,7 @@ const session        = ref(null)
 const rankedResumes  = ref([])
 const processingQueue = ref([])
 const detailResume   = ref(null)
+const weights        = ref(null)   // null → backend auto-selects profile
 
 let queueCounter = 0
 let draining = false
@@ -343,7 +348,7 @@ async function drainQueue() {
     if (!next) break
     next.status = 'processing'
     try {
-      const { data } = await uploadResumeToSession(session.value.id, next.file)
+      const { data } = await uploadResumeToSession(session.value.id, next.file, weights.value)
       rankedResumes.value.push(data)
       rankedResumes.value.sort((a, b) => b.rank_score - a.rank_score)
       processingQueue.value = processingQueue.value.filter(i => i.id !== next.id)

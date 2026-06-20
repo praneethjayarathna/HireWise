@@ -93,6 +93,9 @@
         </div>
       </div>
 
+      <!-- Weight settings -->
+      <WeightSettingsPanel v-model="weights" />
+
       <!-- Analyze button -->
       <button
         class="btn-analyze"
@@ -543,6 +546,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { analyzeJobDescription, analyzeResume } from '@/api/jobs'
 import AppNavbar from '@/components/AppNavbar.vue'
+import WeightSettingsPanel from '@/components/WeightSettingsPanel.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -561,6 +565,7 @@ const certificationAnalysis = ref(null)
 const projectAnalysis = ref(null)
 const similarityScores = ref(null)
 const scoreBreakdown = ref(null)
+const weights = ref(null)
 const overviewMatches = ref(null)
 const overviewF1Score = ref(null)
 const loading = ref(false)
@@ -729,7 +734,7 @@ async function analyze() {
   certificationAnalysis.value = null
   projectAnalysis.value = null
   try {
-    const { data } = await analyzeResume(resumeFile.value, jobDescriptionResult.value)
+    const { data } = await analyzeResume(resumeFile.value, jobDescriptionResult.value, weights.value)
     similarityScores.value = data.similarity_scores
     scoreBreakdown.value = data.score_breakdown ?? null
     overviewMatches.value = data.overview_matches

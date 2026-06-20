@@ -8,10 +8,11 @@ export function analyzeJobDescription(file) {
   })
 }
 
-export function analyzeResume(file, jobDescription) {
+export function analyzeResume(file, jobDescription, weights = null) {
   const form = new FormData()
   form.append('resume_file', file)
   form.append('job_description', JSON.stringify(jobDescription))
+  if (weights) form.append('weights', JSON.stringify(weights))
   return api.post('/jobs/resume/analyze/', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
@@ -27,9 +28,10 @@ export function createJobSession(file) {
   })
 }
 
-export function uploadResumeToSession(sessionId, file) {
+export function uploadResumeToSession(sessionId, file, weights = null) {
   const form = new FormData()
   form.append('file', file)
+  if (weights) form.append('weights', JSON.stringify(weights))
   return api.post(`/jobs/sessions/${sessionId}/resumes/`, form, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
