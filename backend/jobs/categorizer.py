@@ -415,7 +415,7 @@ def compare_overviews(
     jd_sentences: List[str],
     resume_sentences: List[str],
     threshold: float = 0.40,
-) -> List[Dict[str, Any]]:
+) -> Dict[str, Any]:
     """
     Compare overview sentences from JD and resume using SBERT.
 
@@ -426,10 +426,23 @@ def compare_overviews(
     most one JD sentence, preventing a single resume sentence from being
     paired with multiple JD sentences.
 
+    Scoring — F1 (harmonic mean of coverage and quality):
+      coverage = matched_pairs / total_jd_sentences  (recall: how much of the
+                 JD overview the resume addresses)
+      quality  = mean cosine similarity of matched pairs
+      f1_score = 2 × coverage × quality / (coverage + quality)
+
+    This is fairer than a plain average: a resume with 2 decent matches
+    scores higher than one with a single slightly-better match, because
+    it covers more of the JD overview.
+
     Returns
     -------
-    list of dicts with keys: job_sentence, resume_sentence, similarity
-    sorted descending by similarity (only pairs above *threshold*).
+    dict with keys:
+      matches           – list of {job_sentence, resume_sentence, similarity}
+                          sorted descending by similarity
+      total_jd_sentences – count of JD overview sentences after filtering
+      f1_score          – float in [0, 1]
     """
     jd_sentences = _filter_headers(jd_sentences)
     resume_sentences = _filter_headers(resume_sentences)
@@ -437,8 +450,10 @@ def compare_overviews(
     jd_sentences = [s for s in jd_sentences if len(s) >= 15]
     resume_sentences = [s for s in resume_sentences if len(s) >= 15]
 
+    total_jd = len(jd_sentences)
+
     if not jd_sentences or not resume_sentences:
-        return []
+        return {"matches": [], "total_jd_sentences": total_jd, "f1_score": 0.0}
 
     model = _get_model()
 
@@ -447,7 +462,7 @@ def compare_overviews(
 
     pairs, _, _ = _greedy_matches(jd_embeddings, resume_embeddings, threshold=threshold)
 
-    return [
+    matches = [
         {
             "job_sentence": jd_sentences[j],
             "resume_sentence": resume_sentences[r],
@@ -455,3 +470,18 @@ def compare_overviews(
         }
         for j, r, s in pairs
     ]
+
+    n_matched = len(matches)
+    if n_matched == 0 or total_jd == 0:
+        f1_score = 0.0
+    else:
+        coverage = n_matched / total_jd
+        avg_quality = sum(m["similarity"] for m in matches) / n_matched
+        denom = coverage + avg_quality
+        f1_score = round(2 * coverage * avg_quality / denom, 4) if denom > 0 else 0.0
+
+    return {
+        "matches": matches,
+        "total_jd_sentences": total_jd,
+        "f1_score": f1_score,
+    }

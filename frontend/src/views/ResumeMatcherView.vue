@@ -154,7 +154,7 @@
           </div>
           <div class="stat-badge highlight">
             <span class="stat-value">{{ overviewMatches.length ? overviewAvgScore : '0' }}%</span>
-            <span class="stat-label">Avg Similarity</span>
+            <span class="stat-label">F1 Score</span>
           </div>
         </div>
 
@@ -569,6 +569,7 @@ const certificationAnalysis = ref(null)
 const projectAnalysis = ref(null)
 const similarityScores = ref(null)
 const overviewMatches = ref(null)
+const overviewF1Score = ref(null)
 const loading = ref(false)
 const jdLoading = ref(false)
 const error = ref('')
@@ -612,7 +613,9 @@ const overallScoreClass = computed(() => {
 })
 
 const overviewAvgScore = computed(() => {
+  if (overviewF1Score.value != null) return (overviewF1Score.value * 100).toFixed(0)
   if (!overviewMatches.value?.length) return 0
+  // fallback: plain average when f1 not available
   const sum = overviewMatches.value.reduce((acc, m) => acc + m.similarity, 0)
   return ((sum / overviewMatches.value.length) * 100).toFixed(0)
 })
@@ -687,6 +690,7 @@ function clearResume() {
   resumeFile.value = null
   similarityScores.value = null
   overviewMatches.value = null
+  overviewF1Score.value = null
   skillAnalysis.value = null
   if (resumeFileInput.value) resumeFileInput.value.value = ''
 }
@@ -710,6 +714,7 @@ async function analyze() {
   error.value = ''
   similarityScores.value = null
   overviewMatches.value = null
+  overviewF1Score.value = null
   skillAnalysis.value = null
   educationAnalysis.value = null
   experienceAnalysis.value = null
@@ -720,6 +725,7 @@ async function analyze() {
     const { data } = await analyzeResume(resumeFile.value, jobDescriptionResult.value)
     similarityScores.value = data.similarity_scores
     overviewMatches.value = data.overview_matches
+    overviewF1Score.value = data.overview_f1_score ?? null
     skillAnalysis.value = data.skill_analysis
     educationAnalysis.value = data.education_analysis
     experienceAnalysis.value = data.experience_analysis

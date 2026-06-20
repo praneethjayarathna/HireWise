@@ -83,7 +83,7 @@
               </div>
               <div class="stat-pill highlight">
                 <span class="stat-val">{{ overviewAvgScore }}%</span>
-                <span class="stat-lbl">Avg Similarity</span>
+                <span class="stat-lbl">F1 Score</span>
               </div>
             </div>
             <div v-if="overviewMatches.length" class="overview-list">
@@ -390,7 +390,8 @@ const exp      = computed(() => analysis.value.experience_analysis)
 const resp     = computed(() => analysis.value.responsibility_analysis)
 const cert     = computed(() => analysis.value.certification_analysis)
 const proj     = computed(() => analysis.value.project_analysis)
-const overviewMatches = computed(() => analysis.value.overview_matches ?? null)
+const overviewMatches  = computed(() => analysis.value.overview_matches ?? null)
+const overviewF1Score  = computed(() => analysis.value.overview_f1_score ?? null)
 
 const categories = [
   { key: 'skills',          label: 'Skills',           icon: '⚡', color: '#4f46e5' },
@@ -400,6 +401,7 @@ const categories = [
 ]
 
 const overviewAvgScore = computed(() => {
+  if (overviewF1Score.value != null) return (overviewF1Score.value * 100).toFixed(0)
   if (!overviewMatches.value?.length) return 0
   const sum = overviewMatches.value.reduce((a, m) => a + m.similarity, 0)
   return ((sum / overviewMatches.value.length) * 100).toFixed(0)

@@ -290,7 +290,9 @@ class ResumeAnalyzeView(APIView):
         # Sentence-level overview comparison
         jd_overview = job_description.get("overview", [])
         resume_overview = categorized_resume.get("overview", [])
-        overview_matches = compare_overviews(jd_overview, resume_overview)
+        overview_data    = compare_overviews(jd_overview, resume_overview)
+        overview_matches = overview_data["matches"]
+        overview_f1      = overview_data["f1_score"]
 
         job_text = "\n".join(
             sentence for sentences in job_description.values() for sentence in sentences
@@ -346,6 +348,7 @@ class ResumeAnalyzeView(APIView):
                 "categorized_resume": resume_serializer.validated_data,
                 "similarity_scores": score_serializer.validated_data,
                 "overview_matches": overview_serializer.validated_data,
+                "overview_f1_score": overview_f1,
                 "skill_analysis": skill_serializer.validated_data,
                 "education_analysis": edu_serializer.validated_data,
                 "experience_analysis": exp_serializer.validated_data,
@@ -449,10 +452,12 @@ class UploadResumeToSessionView(APIView):
 
         categorized_resume = categorize(resume_text)
         scores = compute_similarity(job_description, categorized_resume)
-        overview_matches = compare_overviews(
+        overview_data    = compare_overviews(
             job_description.get("overview", []),
             categorized_resume.get("overview", []),
         )
+        overview_matches = overview_data["matches"]
+        overview_f1      = overview_data["f1_score"]
 
         resume_projects = extract_projects(resume_text)
         resume_certifications = extract_certifications(resume_text)
@@ -481,6 +486,7 @@ class UploadResumeToSessionView(APIView):
             "categorized_resume": categorized_resume,
             "similarity_scores": scores,
             "overview_matches": overview_matches,
+            "overview_f1_score": overview_f1,
             "skill_analysis": skill_analysis,
             "education_analysis": education_analysis,
             "experience_analysis": experience_analysis,
