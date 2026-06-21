@@ -127,7 +127,7 @@ SESSION_COOKIE_DOMAIN = ".hire-wise-ai.com"
 
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
-CORS_ALLOWED_ORIGINS = "https://hire-wise-ai.com" 
+CORS_ALLOWED_ORIGINS = ["https://hire-wise-ai.com"] 
 CSRF_TRUSTED_ORIGINS = ["https://hire-wise-ai.com"]
 
 # ── Security headers (enable in production with HTTPS) ───────────────────────
