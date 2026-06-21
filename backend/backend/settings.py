@@ -2,9 +2,9 @@ from pathlib import Path
 from decouple import config
 from datetime import timedelta
 import os
-# from dotenv import load_dotenv
+from dotenv import load_dotenv
 
-# load_dotenv()
+load_dotenv()
 
 HF_TOKEN = config("HF_TOKEN")
 
