@@ -2,7 +2,7 @@ import axios from 'axios'
 import { useAuthStore } from '@/stores/auth'
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://api.hire-wise-ai.com/api',
+  baseURL: import.meta.env.VITE_API_URL || 'https://hire-wise-ai.com/api',
   headers: { 'Content-Type': 'application/json' },
 })
 
