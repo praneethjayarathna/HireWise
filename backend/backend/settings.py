@@ -10,15 +10,17 @@ HF_TOKEN = os.environ.get("HF_TOKEN")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = config('SECRET_KEY')
-DEBUG = config('DEBUG', default=False, cast=bool)
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost').split(',')
+SECRET_KEY = 'OwKN7AW3WVoa0-PbzM2FTUc1wprDsx1Y89mdQPs46LdHXjtNGZDSNDKtieSMxrjv9Lg'
+DEBUG = True
+# ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost').split(',')
+ALLOWED_HOSTS = ['*']
 
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
+    'whitenoise.runserver_nostatic',
     'django.contrib.messages',
     'django.contrib.staticfiles',
     # third party
@@ -36,6 +38,7 @@ MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
@@ -114,10 +117,26 @@ SIMPLE_JWT = {
 }
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
-CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='http://localhost:5173').split(',')
 CORS_ALLOW_CREDENTIALS = True
+
+CSRF_COOKIE_SAMESITE = None
+SESSION_COOKIE_SAMESITE = None
+ 
+SESSION_COOKIE_SECURE = True  
+CSRF_COOKIE_SECURE = True
+
+CSRF_COOKIE_DOMAIN = ".hire-wise-ai.com"
+SESSION_COOKIE_DOMAIN = ".hire-wise-ai.com"
+
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+CORS_ALLOWED_ORIGINS = "https://hire-wise-ai.com" 
+CSRF_TRUSTED_ORIGINS = ["https://hire-wise-ai.com", "https://api.hire-wise-ai.com"]
 
 # ── Security headers (enable in production with HTTPS) ───────────────────────
 SECURE_BROWSER_XSS_FILTER = True
 X_FRAME_OPTIONS = 'DENY'
 SECURE_CONTENT_TYPE_NOSNIFF = True
+
+STATIC_URL = '/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
